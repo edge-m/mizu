@@ -169,6 +169,19 @@ route 登録順や型推論の高度な整理は、実際の利用例を増や�
 - Core と同じ Web 標準 `Request` / `Response` の利用
 - Node.js 固有 API への依存なし
 
+### Slice 11: Benchmark baseline
+
+実装済み。
+
+- `npm run bench` で Vitest benchmark を実行
+- static / params route dispatch
+- headers / query / JSON body validation
+- response validation
+- middleware
+- Node.js adapter 経由の HTTP fetch
+
+初回 baseline は実行環境依存だが、JSON body validation が Core の他の測定項目より遅く、Node adapter 経由は約 2.5k req/s の結果になった。以後の最適化はこの baseline と比較して判断する。
+
 ## Phase 1: Request入力の拡張
 
 ### Slice 2: GET + path params
@@ -412,7 +425,7 @@ PUT / PATCH / DELETE       完了
 HTTP QUERY method          完了
 Node.js adapter hardening  完了（基本形）
 Cloudflare Workers adapter 完了（基本形）
-performance benchmark
+performance benchmark    完了（baseline）
 ```
 
 ## 対象外

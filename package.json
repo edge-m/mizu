@@ -17,6 +17,7 @@
   },
   "scripts": {
     "build": "tsup",
+    "bench": "vitest bench",
     "clean": "rm -rf dist",
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",
