@@ -151,6 +151,16 @@ route 登録順や型推論の高度な整理は、実際の利用例を増や�
 - `QUERY` method の composed router dispatch
 - GET の URL query parameter とは別の HTTP method として扱う
 
+### Slice 9: Node.js adapter hardening
+
+基本部分を実装済み。
+
+- Node.js request stream を Web `Request.body` へ接続
+- Web `Response.body` の streaming 転送
+- request / client disconnect の `AbortSignal` 連携
+- request timeout、keep-alive timeout、headers timeout の設定
+- `server.close()` による既存の graceful shutdown API の利用
+
 ## Phase 1: Request入力の拡張
 
 ### Slice 2: GET + path params
@@ -392,7 +402,7 @@ route middleware           保留
 hooks                      採用しない
 PUT / PATCH / DELETE       完了
 HTTP QUERY method          完了
-Node.js adapter hardening
+Node.js adapter hardening  完了（基本形）
 Cloudflare Workers adapter
 performance benchmark
 ```

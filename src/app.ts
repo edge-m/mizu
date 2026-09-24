@@ -146,6 +146,18 @@ function response(
     return new Response(body, { status, headers: responseHeaders });
   }
 
+  if (
+    body instanceof ReadableStream ||
+    body instanceof Blob ||
+    body instanceof ArrayBuffer ||
+    ArrayBuffer.isView(body)
+  ) {
+    return new Response(body as BodyInit, {
+      status,
+      headers: responseHeaders,
+    });
+  }
+
   if (!responseHeaders.has('content-type')) {
     responseHeaders.set('content-type', 'application/json; charset=utf-8');
   }

@@ -1,6 +1,7 @@
 export { createApp } from './app.js';
 export { createNodeServer } from './node.js';
 export { createRouter } from './app.js';
+export type { NodeServerOptions } from './node.js';
 export type {
   AnySchema,
   DeleteContract,

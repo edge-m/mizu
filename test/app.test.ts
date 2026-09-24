@@ -666,3 +666,73 @@ test('serves the same app through the Node.js adapter', async () => {
     });
   }
 });
+
+test('forwards a Node.js request body to the Web Standard app', async () => {
+  const app = createApp();
+
+  app.post(
+    '/todos',
+    {
+      request: { body: z.object({ title: z.string() }) },
+      response: { 201: z.object({ title: z.string() }) },
+    },
+    async ({ body }) => ({ status: 201, body }),
+  );
+
+  const server = createNodeServer(app).listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+
+  try {
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Server did not expose a TCP address');
+    }
+
+    const response = await fetch(`http://127.0.0.1:${address.port}/todos`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'From Node' }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ title: 'From Node' });
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test('streams a Web response body through the Node.js adapter', async () => {
+  const app = createApp();
+
+  app.get('/stream', {}, async () => ({
+    status: 200,
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('chunk-1'));
+        controller.enqueue(new TextEncoder().encode('chunk-2'));
+        controller.close();
+      },
+    }),
+  }));
+
+  const server = createNodeServer(app).listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+
+  try {
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Server did not expose a TCP address');
+    }
+
+    const response = await fetch(`http://127.0.0.1:${address.port}/stream`);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('chunk-1chunk-2');
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
