@@ -93,31 +93,37 @@ export type MizuRouter = {
     path: string,
     contract: Contract,
     handler: GetHandler<Contract>,
+    ...middlewares: Middleware[]
   ): MizuRouter;
   post<Contract extends PostContract>(
     path: string,
     contract: Contract,
     handler: PostHandler<Contract>,
+    ...middlewares: Middleware[]
   ): MizuRouter;
   put<Contract extends PutContract>(
     path: string,
     contract: Contract,
     handler: PutHandler<Contract>,
+    ...middlewares: Middleware[]
   ): MizuRouter;
   patch<Contract extends PatchContract>(
     path: string,
     contract: Contract,
     handler: PatchHandler<Contract>,
+    ...middlewares: Middleware[]
   ): MizuRouter;
   delete<Contract extends DeleteContract>(
     path: string,
     contract: Contract,
     handler: DeleteHandler<Contract>,
+    ...middlewares: Middleware[]
   ): MizuRouter;
   query<Contract extends QueryContract>(
     path: string,
     contract: Contract,
     handler: QueryHandler<Contract>,
+    ...middlewares: Middleware[]
   ): MizuRouter;
   use(middleware: Middleware): MizuRouter;
 };

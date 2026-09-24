@@ -635,6 +635,36 @@ test('supports QUERY routes in a composed router', async () => {
   expect(await response.json()).toEqual({ term: 'router' });
 });
 
+test('applies route middleware only to the registered route', async () => {
+  const app = createApp();
+  const events: string[] = [];
+  const routeMiddleware = async (_request: Request, next: () => Promise<Response>) => {
+    events.push('route-before');
+    const response = await next();
+    events.push('route-after');
+    return response;
+  };
+
+  app.get('/protected', {}, async () => {
+    events.push('protected-handler');
+    return { status: 200, body: { route: 'protected' } };
+  }, routeMiddleware);
+  app.get('/public', {}, async () => {
+    events.push('public-handler');
+    return { status: 200, body: { route: 'public' } };
+  });
+
+  await app.fetch(new Request('http://localhost/public'));
+  await app.fetch(new Request('http://localhost/protected'));
+
+  expect(events).toEqual([
+    'public-handler',
+    'route-before',
+    'protected-handler',
+    'route-after',
+  ]);
+});
+
 test('serves the same app through the Node.js adapter', async () => {
   const app = createApp();
 

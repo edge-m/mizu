@@ -121,7 +121,7 @@ middleware の基本部分は実装済み。
 
 hooks は採用しない。middleware で handler 前後の処理を表現できるため、専用の lifecycle API は現時点では追加しない。
 
-route 単位 middleware は、必要性が明確になるまで保留する。
+route 単位 middleware は `app.get(..., handler, ...middlewares)` の形式で実装済み。router composition でも group middleware の内側に適用される。
 
 ### Slice 8: router composition
 
@@ -406,7 +406,7 @@ status別response           完了
 error contract             完了
 app middleware             完了
 router composition         完了（基本形）
-route middleware           保留
+route middleware           完了
 hooks                      採用しない
 PUT / PATCH / DELETE       完了
 HTTP QUERY method          完了

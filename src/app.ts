@@ -25,11 +25,10 @@ type RouteDefinition = {
   path: string;
   contract: RouteContract;
   handler: (context: Record<string, unknown>) => unknown;
-};
-
-type RegisteredRoute = RouteDefinition & {
   middlewares: Middleware[];
 };
+
+type RegisteredRoute = RouteDefinition;
 
 type InternalRouter = MizuRouter & {
   definitions: RouteDefinition[];
@@ -47,8 +46,9 @@ function routeDefinition(
   path: string,
   contract: RouteContract,
   handler: (context: Record<string, unknown>) => unknown,
+  middlewares: Middleware[] = [],
 ): RouteDefinition {
-  return { method, path, contract, handler };
+  return { method, path, contract, handler, middlewares };
 }
 
 function matchPath(
@@ -220,6 +220,7 @@ export function createApp(): MizuApp {
       path: string,
       contract: Contract,
       handler: GetHandler<Contract>,
+      ...routeMiddlewares: Middleware[]
     ): MizuApp {
       routes.push({
         method: 'GET',
@@ -228,7 +229,7 @@ export function createApp(): MizuApp {
         handler: handler as (
           context: Record<string, unknown>,
         ) => unknown,
-        middlewares: [],
+        middlewares: routeMiddlewares,
       });
 
       return this;
@@ -238,6 +239,7 @@ export function createApp(): MizuApp {
       path: string,
       contract: Contract,
       handler: PostHandler<Contract>,
+      ...routeMiddlewares: Middleware[]
     ): MizuApp {
       routes.push({
         method: 'POST',
@@ -246,7 +248,7 @@ export function createApp(): MizuApp {
         handler: handler as (
           context: Record<string, unknown>,
         ) => unknown,
-        middlewares: [],
+        middlewares: routeMiddlewares,
       });
 
       return this;
@@ -256,13 +258,14 @@ export function createApp(): MizuApp {
       path: string,
       contract: Contract,
       handler: PutHandler<Contract>,
+      ...routeMiddlewares: Middleware[]
     ): MizuApp {
       routes.push({
         method: 'PUT',
         path,
         contract,
         handler: handler as (context: Record<string, unknown>) => unknown,
-        middlewares: [],
+        middlewares: routeMiddlewares,
       });
 
       return this;
@@ -272,13 +275,14 @@ export function createApp(): MizuApp {
       path: string,
       contract: Contract,
       handler: PatchHandler<Contract>,
+      ...routeMiddlewares: Middleware[]
     ): MizuApp {
       routes.push({
         method: 'PATCH',
         path,
         contract,
         handler: handler as (context: Record<string, unknown>) => unknown,
-        middlewares: [],
+        middlewares: routeMiddlewares,
       });
 
       return this;
@@ -288,13 +292,14 @@ export function createApp(): MizuApp {
       path: string,
       contract: Contract,
       handler: DeleteHandler<Contract>,
+      ...routeMiddlewares: Middleware[]
     ): MizuApp {
       routes.push({
         method: 'DELETE',
         path,
         contract,
         handler: handler as (context: Record<string, unknown>) => unknown,
-        middlewares: [],
+        middlewares: routeMiddlewares,
       });
 
       return this;
@@ -304,13 +309,14 @@ export function createApp(): MizuApp {
       path: string,
       contract: Contract,
       handler: QueryHandler<Contract>,
+      ...routeMiddlewares: Middleware[]
     ): MizuApp {
       routes.push({
         method: 'QUERY',
         path,
         contract,
         handler: handler as (context: Record<string, unknown>) => unknown,
-        middlewares: [],
+        middlewares: routeMiddlewares,
       });
 
       return this;
@@ -328,7 +334,10 @@ export function createApp(): MizuApp {
         routes.push({
           ...definition,
           path: joinPaths(prefix, definition.path),
-          middlewares: [...internalRouter.middlewares],
+          middlewares: [
+            ...internalRouter.middlewares,
+            ...definition.middlewares,
+          ],
         });
       }
 
@@ -462,6 +471,7 @@ export function createRouter(): MizuRouter {
       path: string,
       contract: Contract,
       handler: GetHandler<Contract>,
+      ...routeMiddlewares: Middleware[]
     ): MizuRouter {
       definitions.push(
         routeDefinition(
@@ -469,6 +479,7 @@ export function createRouter(): MizuRouter {
           path,
           contract,
           handler as (context: Record<string, unknown>) => unknown,
+          routeMiddlewares,
         ),
       );
       return router;
@@ -478,6 +489,7 @@ export function createRouter(): MizuRouter {
       path: string,
       contract: Contract,
       handler: PostHandler<Contract>,
+      ...routeMiddlewares: Middleware[]
     ): MizuRouter {
       definitions.push(
         routeDefinition(
@@ -485,6 +497,7 @@ export function createRouter(): MizuRouter {
           path,
           contract,
           handler as (context: Record<string, unknown>) => unknown,
+          routeMiddlewares,
         ),
       );
       return router;
@@ -494,6 +507,7 @@ export function createRouter(): MizuRouter {
       path: string,
       contract: Contract,
       handler: PutHandler<Contract>,
+      ...routeMiddlewares: Middleware[]
     ): MizuRouter {
       definitions.push(
         routeDefinition(
@@ -501,6 +515,7 @@ export function createRouter(): MizuRouter {
           path,
           contract,
           handler as (context: Record<string, unknown>) => unknown,
+          routeMiddlewares,
         ),
       );
       return router;
@@ -510,6 +525,7 @@ export function createRouter(): MizuRouter {
       path: string,
       contract: Contract,
       handler: PatchHandler<Contract>,
+      ...routeMiddlewares: Middleware[]
     ): MizuRouter {
       definitions.push(
         routeDefinition(
@@ -517,6 +533,7 @@ export function createRouter(): MizuRouter {
           path,
           contract,
           handler as (context: Record<string, unknown>) => unknown,
+          routeMiddlewares,
         ),
       );
       return router;
@@ -526,6 +543,7 @@ export function createRouter(): MizuRouter {
       path: string,
       contract: Contract,
       handler: DeleteHandler<Contract>,
+      ...routeMiddlewares: Middleware[]
     ): MizuRouter {
       definitions.push(
         routeDefinition(
@@ -533,6 +551,7 @@ export function createRouter(): MizuRouter {
           path,
           contract,
           handler as (context: Record<string, unknown>) => unknown,
+          routeMiddlewares,
         ),
       );
       return router;
@@ -542,6 +561,7 @@ export function createRouter(): MizuRouter {
       path: string,
       contract: Contract,
       handler: QueryHandler<Contract>,
+      ...routeMiddlewares: Middleware[]
     ): MizuRouter {
       definitions.push(
         routeDefinition(
@@ -549,6 +569,7 @@ export function createRouter(): MizuRouter {
           path,
           contract,
           handler as (context: Record<string, unknown>) => unknown,
+          routeMiddlewares,
         ),
       );
       return router;
