@@ -161,6 +161,14 @@ route 登録順や型推論の高度な整理は、実際の利用例を増や�
 - request timeout、keep-alive timeout、headers timeout の設定
 - `server.close()` による既存の graceful shutdown API の利用
 
+### Slice 10: Cloudflare Workers adapter
+
+基本部分を実装済み。
+
+- `createWorkerHandler(app)` による Fetch handler 接続
+- Core と同じ Web 標準 `Request` / `Response` の利用
+- Node.js 固有 API への依存なし
+
 ## Phase 1: Request入力の拡張
 
 ### Slice 2: GET + path params
@@ -403,7 +411,7 @@ hooks                      採用しない
 PUT / PATCH / DELETE       完了
 HTTP QUERY method          完了
 Node.js adapter hardening  完了（基本形）
-Cloudflare Workers adapter
+Cloudflare Workers adapter 完了（基本形）
 performance benchmark
 ```
 

@@ -1,6 +1,11 @@
 import { expect, test } from 'vitest';
 import { z } from 'zod';
-import { createApp, createNodeServer, createRouter } from '../src/index.js';
+import {
+  createApp,
+  createNodeServer,
+  createRouter,
+  createWorkerHandler,
+} from '../src/index.js';
 
 const healthRequest = {
   headers: z.object({
@@ -735,4 +740,21 @@ test('streams a Web response body through the Node.js adapter', async () => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
   }
+});
+
+test('connects the app to a Fetch-compatible Workers handler', async () => {
+  const app = createApp();
+
+  app.get('/health', {}, async () => ({
+    status: 200,
+    body: { runtime: 'worker' },
+  }));
+
+  const fetchHandler = createWorkerHandler(app);
+  const response = await fetchHandler(
+    new Request('https://worker.example/health'),
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ runtime: 'worker' });
 });

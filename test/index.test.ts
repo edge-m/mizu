@@ -6,5 +6,6 @@ test('exposes the public application entry points', () => {
     'createApp',
     'createNodeServer',
     'createRouter',
+    'createWorkerHandler',
   ]);
 });
