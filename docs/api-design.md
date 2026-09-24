@@ -4,7 +4,7 @@
 
 mizu は、Node.js 向けの軽量な API サーバライブラリである。
 
-目標は、Hono のような軽快さを保ちながら、リクエストとレスポンスの契約を route declaration に集約し、handler まで一貫して型安全にすること。利用者は HTTP の外部仕様を宣言し、その仕様を実装する handler を書く。
+目標は、Hono のような軽快さを保ちながら、Web標準のHTTP API上でリクエストとレスポンスの契約を route declaration に集約し、handler まで一貫して型安全にすること。利用者は HTTP の外部仕様を宣言し、その仕様を実装する handler を書く。
 
 中心となる読み方は次の順序である。
 
@@ -179,6 +179,17 @@ app.post(
 
 ただし、TypeScriptの型情報だけではruntime validationはできない。schemaの値をroute contractに渡すことで、同じ定義をコンパイル時と実行時の両方で利用する。
 
+### Validation の責務
+
+mizuはvalidationライブラリの挙動を独自に再定義しない。route contractにschemaが指定された場合、mizuはStandard Schemaの `~standard.validate()` を呼び、得られたoutputまたはissueをHTTP処理へ接続する。
+
+- mizu: HTTP入力の抽出、schemaの呼び出し、handlerへのoutputの受け渡し、issueのHTTPエラー化
+- validationライブラリ: strict / passthrough / strip、coercion、transform、default、schema固有の最適化
+
+unknown fieldを通すか、除去するか、エラーにするかはschema側で決める。mizu独自の `validateResponse: false` のようなvalidation無効化フラグは設けない。
+
+schemaが指定されていない入力元は検証しない。response schemaが指定されていない場合も、response validationは行わない。schemaが指定されている場合、mizuはそのschemaを実行する。
+
 ## Handler
 
 handlerはroute contractの実装である。
@@ -233,7 +244,37 @@ schemaを値として渡せば、handlerの型は推論される。型だけの�
 
 ### コアは薄く保つ
 
-decorator、DI container、class-based DTOを必須にしない。middlewareやpluginによる拡張余地は持たせるが、最初のroute登録に複雑な実行モデルを要求しない。
+decorator、DI container、class-based DTOを必須にしない。middlewareやpluginによる拡張余地は持たせるが、最初のroute登録に複雑な実行モデルを要求しない。validationライブラリの内部表現を変換したり、JSON Schemaへ変換したりもしない。
+
+## Web標準Runtime
+
+mizu CoreはNode.js固有のHTTPオブジェクトではなく、Web標準APIを中心に設計する。
+
+- `Request`
+- `Response`
+- `Headers`
+- `URL`
+- `FormData`
+- `ReadableStream`
+- `AbortSignal`
+
+Node.jsではHTTP server adapterがNode.jsの接続をWeb標準の `Request` へ変換し、Cloudflare WorkersではWorkerのFetch handlerに接続する。
+
+```text
+Web Standard Core
+  ├── Node.js adapter
+  └── Cloudflare Workers adapter
+```
+
+これにより、アプリケーションのrouteとhandlerはruntime adapterに依存せず、Node.jsとCloudflare Workersの双方で再利用できる。Node.jsを第一ターゲットとしつつ、Web標準APIを境界にすることでEdge runtimeへの展開を可能にする。
+
+パフォーマンス上の基本方針は次のとおり。
+
+- route登録時にschemaやhandlerを解決し、リクエストごとの探索を増やさない
+- Standard Schemaを別形式へ変換しない
+- decoratorやreflectionを使わない
+- handler呼び出しまでのcontext生成を最小化する
+- validationライブラリ側の最適化を妨げない
 
 ## 他フレームワークとの位置づけ
 
@@ -241,7 +282,7 @@ decorator、DI container、class-based DTOを必須にしない。middlewareやp
 - Hono: 軽量でWeb標準寄り。mizuはvalidationをmiddlewareの組み合わせではなくroute contractの中心に置く。
 - Fastify: schema-based validationと高性能なserializationが強い。mizuはStandard Schemaと宣言の読みやすさを優先する。
 - NestJS: module、decorator、DIを含む大きなアプリケーションフレームワーク。mizuはそれらを必須にしない。
-- Elysia: schemaから型・validation・OpenAPIをまとめる体験が近い。mizuはNode.jsを第一ターゲットにし、`path → contract → handler` の順序を採用する。
+- Elysia: schemaから型・validation・OpenAPIをまとめる体験が近い。mizuはNode.jsとWeb標準APIを第一ターゲットにし、`path → contract → handler` の順序を採用する。
 
 mizuの差別化の中心は、Standard Schema対応そのものではなく、HTTPの入出力契約を読みやすい形で一つのroute declarationにまとめ、handlerへ自然に型を流すことである。
 
@@ -251,5 +292,8 @@ mizuの差別化の中心は、Standard Schema対応そのものではなく、H
 - decorator-based controller
 - class-based DTO
 - schemaライブラリ独自のAPI
+- OpenAPI / JSON Schemaの生成・読み込み
+- 他言語向けの型・SDK生成
+- API仕様ファイルを正とする設計
 - 自動的なデータベース・ORM連携
 - RPC専用のprocedure API
