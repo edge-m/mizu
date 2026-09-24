@@ -20,7 +20,7 @@ export type RouteContract = {
 };
 
 export type GetContract = {
-  request?: Pick<RequestSchemas, 'headers'>;
+  request?: Pick<RequestSchemas, 'headers' | 'params' | 'query'>;
   response?: ResponseSchemas;
 };
 
@@ -40,19 +40,57 @@ type ResponseBody<Schemas extends ResponseSchemas | undefined> =
     : unknown;
 
 export type GetResponse<Contract extends GetContract> =
-  { status: number; body: ResponseBody<Contract['response']> };
+  {
+    status: number;
+    body: ResponseBody<Contract['response']>;
+    headers?: HeadersInit;
+  };
 
 export type MaybePromise<Value> = Value | Promise<Value>;
+
+export type Middleware = (
+  request: Request,
+  next: () => Promise<Response>,
+) => MaybePromise<Response>;
 
 export type GetHandler<Contract extends GetContract> = (
   context: GetContext<Contract>,
 ) => MaybePromise<GetResponse<Contract>>;
 
-export type MizuApp = {
+export type PostContract = {
+  request?: RequestSchemas;
+  response?: ResponseSchemas;
+};
+
+export type PostContext<Contract extends PostContract> = OutputContext<
+  Contract['request']
+>;
+
+export type PostResponse<Contract extends PostContract> = {
+  status: number;
+  body: ResponseBody<Contract['response']>;
+  headers?: HeadersInit;
+};
+
+export type PostHandler<Contract extends PostContract> = (
+  context: PostContext<Contract>,
+) => MaybePromise<PostResponse<Contract>>;
+
+export type MizuRouter = {
   get<Contract extends GetContract>(
     path: string,
     contract: Contract,
     handler: GetHandler<Contract>,
-  ): MizuApp;
+  ): MizuRouter;
+  post<Contract extends PostContract>(
+    path: string,
+    contract: Contract,
+    handler: PostHandler<Contract>,
+  ): MizuRouter;
+  use(middleware: Middleware): MizuRouter;
+};
+
+export type MizuApp = MizuRouter & {
+  route(prefix: string, router: MizuRouter): MizuApp;
   fetch(request: Request): Promise<Response>;
 };

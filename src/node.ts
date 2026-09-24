@@ -31,6 +31,7 @@ export function createNodeServer(app: MizuApp): Server {
       response.end(Buffer.from(await webResponse.arrayBuffer()));
     } catch {
       response.statusCode = 500;
+      response.setHeader('content-type', 'application/json; charset=utf-8');
       response.end(JSON.stringify({ error: 'Internal Server Error' }));
     }
   });
