@@ -496,6 +496,140 @@ test('applies router middleware only to composed routes', async () => {
   ]);
 });
 
+test.each([
+  ['PUT', 'put'],
+  ['PATCH', 'patch'],
+  ['DELETE', 'delete'],
+] as const)('serves a %s route with a validated JSON body', async (method, registration) => {
+  const app = createApp();
+  const register = app[registration].bind(app);
+
+  register(
+    '/todos/:id',
+    {
+      request: {
+        params: z.object({ id: z.string() }),
+        body: z.object({ completed: z.boolean() }),
+      },
+      response: {
+        200: z.object({ id: z.string(), completed: z.boolean() }),
+      },
+    },
+    async ({ params, body }) => ({
+      status: 200,
+      body: { id: params.id, completed: body.completed },
+    }),
+  );
+
+  const response = await app.fetch(
+    new Request('http://localhost/todos/1', {
+      method,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ completed: true }),
+    }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ id: '1', completed: true });
+});
+
+test('supports PUT, PATCH, and DELETE routes in a composed router', async () => {
+  const app = createApp();
+  const router = createRouter();
+
+  router.put('/put', {}, async () => ({ status: 200, body: { method: 'put' } }));
+  router.patch('/patch', {}, async () => ({ status: 200, body: { method: 'patch' } }));
+  router.delete('/delete', {}, async () => ({ status: 200, body: { method: 'delete' } }));
+  app.route('/items', router);
+
+  for (const method of ['PUT', 'PATCH', 'DELETE']) {
+    const response = await app.fetch(
+      new Request(`http://localhost/items/${method.toLowerCase()}`, { method }),
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).method).toBe(method.toLowerCase());
+  }
+});
+
+test('passes validated query values to non-GET routes', async () => {
+  const app = createApp();
+
+  app.patch(
+    '/todos/:id',
+    {
+      request: {
+        params: z.object({ id: z.string() }),
+        query: z.object({ notify: z.coerce.boolean().default(false) }),
+      },
+      response: { 200: z.object({ id: z.string(), notify: z.boolean() }) },
+    },
+    async ({ params, query }) => ({
+      status: 200,
+      body: { id: params.id, notify: query.notify },
+    }),
+  );
+
+  const response = await app.fetch(
+    new Request('http://localhost/todos/1?notify=true', { method: 'PATCH' }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ id: '1', notify: true });
+});
+
+test('serves the HTTP QUERY method with a JSON query document', async () => {
+  const app = createApp();
+
+  app.query(
+    '/search',
+    {
+      request: {
+        body: z.object({ term: z.string().min(1) }),
+      },
+      response: { 200: z.object({ result: z.string() }) },
+    },
+    async ({ body }) => ({
+      status: 200,
+      body: { result: `matched:${body.term}` },
+    }),
+  );
+
+  const response = await app.fetch(
+    new Request('http://localhost/search', {
+      method: 'QUERY',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ term: 'mizu' }),
+    }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ result: 'matched:mizu' });
+});
+
+test('supports QUERY routes in a composed router', async () => {
+  const app = createApp();
+  const router = createRouter();
+
+  router.query(
+    '/search',
+    { request: { body: z.object({ term: z.string() }) } },
+    async ({ body }) => ({ status: 200, body: { term: body.term } }),
+  );
+  app.route('/api', router);
+
+  const response = await app.fetch(
+    new Request('http://localhost/api/search', {
+      method: 'QUERY',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ term: 'router' }),
+    }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ term: 'router' });
+});
+
 test('serves the same app through the Node.js adapter', async () => {
   const app = createApp();
 

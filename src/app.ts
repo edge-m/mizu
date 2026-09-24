@@ -6,8 +6,16 @@ import type {
   Middleware,
   MizuApp,
   MizuRouter,
+  DeleteContract,
+  DeleteHandler,
+  PatchContract,
+  PatchHandler,
   PostContract,
   PostHandler,
+  PutContract,
+  PutHandler,
+  QueryContract,
+  QueryHandler,
   RouteContract,
   SchemaOutput,
 } from './types.js';
@@ -232,6 +240,70 @@ export function createApp(): MizuApp {
       return this;
     },
 
+    put<Contract extends PutContract>(
+      path: string,
+      contract: Contract,
+      handler: PutHandler<Contract>,
+    ): MizuApp {
+      routes.push({
+        method: 'PUT',
+        path,
+        contract,
+        handler: handler as (context: Record<string, unknown>) => unknown,
+        middlewares: [],
+      });
+
+      return this;
+    },
+
+    patch<Contract extends PatchContract>(
+      path: string,
+      contract: Contract,
+      handler: PatchHandler<Contract>,
+    ): MizuApp {
+      routes.push({
+        method: 'PATCH',
+        path,
+        contract,
+        handler: handler as (context: Record<string, unknown>) => unknown,
+        middlewares: [],
+      });
+
+      return this;
+    },
+
+    delete<Contract extends DeleteContract>(
+      path: string,
+      contract: Contract,
+      handler: DeleteHandler<Contract>,
+    ): MizuApp {
+      routes.push({
+        method: 'DELETE',
+        path,
+        contract,
+        handler: handler as (context: Record<string, unknown>) => unknown,
+        middlewares: [],
+      });
+
+      return this;
+    },
+
+    query<Contract extends QueryContract>(
+      path: string,
+      contract: Contract,
+      handler: QueryHandler<Contract>,
+    ): MizuApp {
+      routes.push({
+        method: 'QUERY',
+        path,
+        contract,
+        handler: handler as (context: Record<string, unknown>) => unknown,
+        middlewares: [],
+      });
+
+      return this;
+    },
+
     use(middleware: Middleware): MizuApp {
       middlewares.push(middleware);
       return this;
@@ -398,6 +470,70 @@ export function createRouter(): MizuRouter {
       definitions.push(
         routeDefinition(
           'POST',
+          path,
+          contract,
+          handler as (context: Record<string, unknown>) => unknown,
+        ),
+      );
+      return router;
+    },
+
+    put<Contract extends PutContract>(
+      path: string,
+      contract: Contract,
+      handler: PutHandler<Contract>,
+    ): MizuRouter {
+      definitions.push(
+        routeDefinition(
+          'PUT',
+          path,
+          contract,
+          handler as (context: Record<string, unknown>) => unknown,
+        ),
+      );
+      return router;
+    },
+
+    patch<Contract extends PatchContract>(
+      path: string,
+      contract: Contract,
+      handler: PatchHandler<Contract>,
+    ): MizuRouter {
+      definitions.push(
+        routeDefinition(
+          'PATCH',
+          path,
+          contract,
+          handler as (context: Record<string, unknown>) => unknown,
+        ),
+      );
+      return router;
+    },
+
+    delete<Contract extends DeleteContract>(
+      path: string,
+      contract: Contract,
+      handler: DeleteHandler<Contract>,
+    ): MizuRouter {
+      definitions.push(
+        routeDefinition(
+          'DELETE',
+          path,
+          contract,
+          handler as (context: Record<string, unknown>) => unknown,
+        ),
+      );
+      return router;
+    },
+
+    query<Contract extends QueryContract>(
+      path: string,
+      contract: Contract,
+      handler: QueryHandler<Contract>,
+    ): MizuRouter {
+      definitions.push(
+        routeDefinition(
+          'QUERY',
           path,
           contract,
           handler as (context: Record<string, unknown>) => unknown,

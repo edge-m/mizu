@@ -65,6 +65,92 @@ app.get(
 - 400 / 404 / 500
 - Node.js adapter
 
+## 現在の実装状況
+
+### Slice 2: GET + path params
+
+実装済み。
+
+- `:param` の動的 route matching
+- params の抽出と Standard Schema validation
+- static route の優先
+
+### Slice 3: GET + query
+
+実装済み。
+
+- query の抽出
+- 同名 query parameter の配列化
+- schema 側の coercion / default / optional の尊重
+- query validation error の 400
+
+### Slice 4: POST + JSON body
+
+実装済み。
+
+- `app.post`
+- JSON content type の body parsing
+- body schema validation
+- malformed JSON の 400
+- GET route で body を読まない実装
+
+### Slice 5: status 別 response
+
+実装済み。
+
+- status ごとの response schema 選択
+- 未定義 status の 500
+- response validation failure の 500
+- response headers、文字列 response、空 response
+
+### Slice 6: Error contract
+
+実装済み。
+
+- 400 / 404 / 500 の error response shape
+- Standard Schema issue の path / message の保持
+- handler や adapter の内部エラー情報を非露出
+
+### Slice 7: middleware / hooks
+
+middleware の基本部分は実装済み。
+
+- app 全体に適用する middleware
+- `Request → next() → Response` の Web 標準 middleware API
+- middleware の short-circuit と response 置換
+
+hooks は採用しない。middleware で handler 前後の処理を表現できるため、専用の lifecycle API は現時点では追加しない。
+
+route 単位 middleware は、必要性が明確になるまで保留する。
+
+### Slice 8: router composition
+
+基本部分を実装済み。
+
+- `createRouter()`
+- `app.route(prefix, router)`
+- prefix 付き route 登録
+- router 単位の group middleware
+
+route 登録順や型推論の高度な整理は、実際の利用例を増やしてから必要な範囲で改善する。
+
+### HTTP methods: PUT / PATCH / DELETE
+
+実装済み。
+
+- app と router の PUT / PATCH / DELETE route 登録
+- 既存の params / query / JSON body validation の再利用
+- composed router での method dispatch
+
+### HTTP QUERY method
+
+実装済み。
+
+- `app.query()` と `router.query()`
+- JSON query document の body validation
+- `QUERY` method の composed router dispatch
+- GET の URL query parameter とは別の HTTP method として扱う
+
 ## Phase 1: Request入力の拡張
 
 ### Slice 2: GET + path params
@@ -212,12 +298,14 @@ Mizuはvalidationライブラリ固有のstrict / passthrough / strip / transfor
 
 認証、logging、request IDなどの横断処理を追加する。
 
+app 全体 middleware と router 単位 middleware は実装済み。hooks は採用しない。
+
 優先順位:
 
 1. app全体に適用するmiddleware
 2. route groupに適用するmiddleware
 3. route単位のmiddleware
-4. handler前後のhooks
+4. handler 前後の hooks（採用しない）
 
 middlewareはWeb標準のRequest / Responseを扱い、Node.js固有の型をCoreへ持ち込まない。
 
@@ -293,13 +381,17 @@ Mizu側でvalidationを無効化する設定は作らない。validationの最�
 
 ```text
 GET headers                 完了
-GET params                 次
-GET query
-POST JSON body
-status別response
-error contract
-middleware
-router composition
+GET params                 完了
+GET query                  完了
+POST JSON body             完了
+status別response           完了
+error contract             完了
+app middleware             完了
+router composition         完了（基本形）
+route middleware           保留
+hooks                      採用しない
+PUT / PATCH / DELETE       完了
+HTTP QUERY method          完了
 Node.js adapter hardening
 Cloudflare Workers adapter
 performance benchmark

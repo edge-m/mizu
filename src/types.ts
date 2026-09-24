@@ -76,6 +76,18 @@ export type PostHandler<Contract extends PostContract> = (
   context: PostContext<Contract>,
 ) => MaybePromise<PostResponse<Contract>>;
 
+export type PutContract = PostContract;
+export type PutHandler<Contract extends PutContract> = PostHandler<Contract>;
+export type PatchContract = PostContract;
+export type PatchHandler<Contract extends PatchContract> =
+  PostHandler<Contract>;
+export type DeleteContract = PostContract;
+export type DeleteHandler<Contract extends DeleteContract> =
+  PostHandler<Contract>;
+export type QueryContract = PostContract;
+export type QueryHandler<Contract extends QueryContract> =
+  PostHandler<Contract>;
+
 export type MizuRouter = {
   get<Contract extends GetContract>(
     path: string,
@@ -86,6 +98,26 @@ export type MizuRouter = {
     path: string,
     contract: Contract,
     handler: PostHandler<Contract>,
+  ): MizuRouter;
+  put<Contract extends PutContract>(
+    path: string,
+    contract: Contract,
+    handler: PutHandler<Contract>,
+  ): MizuRouter;
+  patch<Contract extends PatchContract>(
+    path: string,
+    contract: Contract,
+    handler: PatchHandler<Contract>,
+  ): MizuRouter;
+  delete<Contract extends DeleteContract>(
+    path: string,
+    contract: Contract,
+    handler: DeleteHandler<Contract>,
+  ): MizuRouter;
+  query<Contract extends QueryContract>(
+    path: string,
+    contract: Contract,
+    handler: QueryHandler<Contract>,
   ): MizuRouter;
   use(middleware: Middleware): MizuRouter;
 };
