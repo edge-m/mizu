@@ -16,7 +16,43 @@ Schema → Route contract → Handler
 - Route contract: URL、入力、出力をHTTPルートへ接続する
 - Handler: 検証済みの入力を受け、契約に適合する出力を返す
 
-## 基本API
+## 現在のVertical Slice
+
+最初の実装は、固定pathのGET routeでheadersだけを受け取る最小経路とする。
+
+```ts
+const healthRequest = {
+  headers: z.object({
+    authorization: z.string(),
+  }),
+};
+
+const healthResponse = {
+  200: z.object({
+    ok: z.boolean(),
+  }),
+};
+
+app.get(
+  '/health',
+  {
+    request: healthRequest,
+    response: healthResponse,
+  },
+  async ({ headers }) => {
+    headers.authorization; // string
+
+    return {
+      status: 200,
+      body: { ok: true },
+    };
+  },
+);
+```
+
+この段階で実装するのは、`headers`、固定path、GET、response status `200`、Web標準の `app.fetch()`、Node.js adapter、validation error `400`、route not found `404` である。params、query、body、middleware、Cloudflare Workers adapterは後続のSliceで追加する。
+
+## 基本API（設計）
 
 ルート登録は次の形を基本とする。
 
@@ -64,6 +100,8 @@ app.post(
   },
 );
 ```
+
+上記のPOST APIは今後の設計目標であり、現在のVertical Sliceにはまだ含めない。
 
 handlerの戻り値は、HTTP statusとbodyを持つ内部的なresponse envelopeとする。`status` はHTTP responseへ反映され、`body` はwire formatのbodyになる。status自体がJSON bodyへ含まれるわけではない。
 
@@ -141,7 +179,7 @@ const getTodoResponse = {
 
 handlerの戻り値は、登録されているstatusのいずれかに対応しなければならない。status codeをbodyへ埋め込む形式ではなく、HTTPのstatusとして扱う。
 
-この表現により、成功・エラーの外部仕様、レスポンス検証、OpenAPI生成を同じ宣言から扱える。
+この表現により、成功・エラーの外部仕様、レスポンス検証、status mappingを同じ宣言から扱える。
 
 ## Schema と型推論
 

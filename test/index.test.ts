@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import * as mizu from '../src/index.js';
 
-test('exposes a stable public entry point', () => {
-  expect(Object.keys(mizu)).toEqual([]);
+test('exposes the public application entry points', () => {
+  expect(Object.keys(mizu)).toEqual(['createApp', 'createNodeServer']);
 });
