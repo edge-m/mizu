@@ -197,6 +197,60 @@ route 登録順や型推論の高度な整理は、実際の利用例を増や�
 
 Hono の validation は `@hono/zod-validator`、response validation は handler 内の Zod parse を使用しているため、response validation は完全な同一条件ではない。以後の最適化はこの baseline と比較して判断する。
 
+### Slice 12: Performance optimization plan
+
+benchmark baseline を壊さず、測定で効果を確認した変更だけを段階的に取り込む。validation を無効化する設定は追加しない。
+
+#### 1. Route dispatch の前処理化
+
+最優先。現在の request ごとの `filter().sort()` と path `split()` を route 登録時の処理へ移す。
+
+- static route を method 別の `Map` で lookup
+- dynamic route を登録時に compiled matcher へ変換
+- static route を dynamic route より常に優先
+- route 登録後の dispatch で配列の sort を実行しない
+- params の抽出結果だけを request ごとに生成
+
+完了条件:
+
+- static / params benchmark の ops/sec が baseline を下回らない
+- static route の優先順位、404、params validation の既存テストが通る
+- route 数を増やした benchmark で改善を確認する
+
+#### 2. Request processing の軽量化
+
+route dispatch 改善後に、入力が不要な route の処理を遅延させる。
+
+- query schema がない route では query object を生成しない
+- params / headers / query の context field を必要な場合だけ生成
+- middleware chain を route 登録時に構築
+- response schema lookup と response serialization の不要な分岐を削減
+
+完了条件:
+
+- headers / query / middleware benchmark を各変更前後で比較できる
+- validation の実行回数と順序が変わらない
+- request / response の公開挙動が既存テストで維持される
+
+#### 3. Node.js adapter の軽量化
+
+Core の Web 標準境界を維持したまま、adapter 固有の変換コストを測定・削減する。
+
+- AbortController と event listener の生成コストを確認
+- request / response stream bridge の不要な変換を削減
+- streaming response、client disconnect、timeout の挙動を維持
+- Node adapter benchmark の throughput と latency を記録
+
+完了条件:
+
+- Node adapter の benchmark が baseline を下回らない
+- body streaming と client disconnect のテストが通る
+- Core に Node.js 固有 API を持ち込まない
+
+#### 4. Hono 比較の再測定
+
+各最適化 pass の最後に `npm run bench` を実行する。Hono の依存バージョン、Node.js version、実行環境を記録し、response validation の条件差も維持して明記する。
+
 ## Phase 1: Request入力の拡張
 
 ### Slice 2: GET + path params
@@ -441,6 +495,10 @@ HTTP QUERY method          完了
 Node.js adapter hardening  完了（基本形）
 Cloudflare Workers adapter 完了（基本形）
 performance benchmark    完了（baseline）
+route dispatch optimization 次
+request processing optimization
+Node adapter optimization
+Hono comparison remeasure
 ```
 
 ## 対象外

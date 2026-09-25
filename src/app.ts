@@ -28,7 +28,16 @@ type RouteDefinition = {
   middlewares: Middleware[];
 };
 
-type RegisteredRoute = RouteDefinition;
+type RouteMatcher = (pathname: string) => Record<string, string> | null;
+
+type RegisteredRoute = RouteDefinition & {
+  matcher: RouteMatcher | null;
+};
+
+type RouteTable = {
+  static: Map<string, RegisteredRoute>;
+  dynamic: RegisteredRoute[];
+};
 
 type InternalRouter = MizuRouter & {
   definitions: RouteDefinition[];
@@ -51,35 +60,50 @@ function routeDefinition(
   return { method, path, contract, handler, middlewares };
 }
 
-function matchPath(
-  routePath: string,
-  pathname: string,
-): Record<string, string> | null {
-  const routeSegments = routePath.split('/');
-  const pathSegments = pathname.split('/');
-
-  if (routeSegments.length !== pathSegments.length) {
-    return null;
-  }
-
-  const params: Record<string, string> = {};
-
-  for (let index = 0; index < routeSegments.length; index += 1) {
-    const routeSegment = routeSegments[index];
-    const pathSegment = pathSegments[index];
-
-    if (routeSegment.startsWith(':')) {
-      params[routeSegment.slice(1)] = decodeURIComponent(pathSegment);
-    } else if (routeSegment !== pathSegment) {
-      return null;
-    }
-  }
-
-  return params;
-}
-
 function isDynamicPath(path: string): boolean {
   return path.split('/').some((segment) => segment.startsWith(':'));
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function compileMatcher(path: string): RouteMatcher {
+  const names: string[] = [];
+  const pattern = path.split('/').map((segment) => {
+    if (segment.startsWith(':')) {
+      names.push(segment.slice(1));
+      return '([^/]*)';
+    }
+    return escapeRegExp(segment);
+  }).join('/');
+  const matcher = new RegExp(`^${pattern}$`);
+
+  return (pathname) => {
+    const match = matcher.exec(pathname);
+    if (!match) return null;
+
+    const params: Record<string, string> = {};
+    for (let index = 0; index < names.length; index += 1) {
+      params[names[index]] = decodeURIComponent(match[index + 1]);
+    }
+    return params;
+  };
+}
+
+function registerRoute(table: RouteTable, definition: RouteDefinition): void {
+  const isStatic = !isDynamicPath(definition.path);
+  const route: RegisteredRoute = {
+    ...definition,
+    matcher: isStatic ? null : compileMatcher(definition.path),
+  };
+
+  if (isStatic) {
+    const key = `${route.method} ${route.path}`;
+    if (!table.static.has(key)) table.static.set(key, route);
+  } else {
+    table.dynamic.push(route);
+  }
 }
 
 class ValidationFailure extends Error {
@@ -211,9 +235,16 @@ function runMiddlewares(
   return next();
 }
 
+function createRouteTable(): RouteTable {
+  return { static: new Map(), dynamic: [] };
+}
+
 export function createApp(): MizuApp {
-  const routes: RegisteredRoute[] = [];
+  const routeTable = createRouteTable();
   const middlewares: Middleware[] = [];
+  const addRoute = (definition: RouteDefinition): void => {
+    registerRoute(routeTable, definition);
+  };
 
   const app: MizuApp = {
     get<Contract extends GetContract>(
@@ -222,7 +253,7 @@ export function createApp(): MizuApp {
       handler: GetHandler<Contract>,
       ...routeMiddlewares: Middleware[]
     ): MizuApp {
-      routes.push({
+      addRoute({
         method: 'GET',
         path,
         contract,
@@ -241,7 +272,7 @@ export function createApp(): MizuApp {
       handler: PostHandler<Contract>,
       ...routeMiddlewares: Middleware[]
     ): MizuApp {
-      routes.push({
+      addRoute({
         method: 'POST',
         path,
         contract,
@@ -260,7 +291,7 @@ export function createApp(): MizuApp {
       handler: PutHandler<Contract>,
       ...routeMiddlewares: Middleware[]
     ): MizuApp {
-      routes.push({
+      addRoute({
         method: 'PUT',
         path,
         contract,
@@ -277,7 +308,7 @@ export function createApp(): MizuApp {
       handler: PatchHandler<Contract>,
       ...routeMiddlewares: Middleware[]
     ): MizuApp {
-      routes.push({
+      addRoute({
         method: 'PATCH',
         path,
         contract,
@@ -294,7 +325,7 @@ export function createApp(): MizuApp {
       handler: DeleteHandler<Contract>,
       ...routeMiddlewares: Middleware[]
     ): MizuApp {
-      routes.push({
+      addRoute({
         method: 'DELETE',
         path,
         contract,
@@ -311,7 +342,7 @@ export function createApp(): MizuApp {
       handler: QueryHandler<Contract>,
       ...routeMiddlewares: Middleware[]
     ): MizuApp {
-      routes.push({
+      addRoute({
         method: 'QUERY',
         path,
         contract,
@@ -331,7 +362,7 @@ export function createApp(): MizuApp {
       const internalRouter = router as InternalRouter;
 
       for (const definition of internalRouter.definitions) {
-        routes.push({
+        addRoute({
           ...definition,
           path: joinPaths(prefix, definition.path),
           middlewares: [
@@ -346,21 +377,21 @@ export function createApp(): MizuApp {
 
     async fetch(request: Request): Promise<Response> {
       const url = new URL(request.url);
-      const candidates = routes
-        .filter((candidate) => candidate.method === request.method)
-        .sort(
-          (left, right) =>
-            Number(isDynamicPath(left.path)) - Number(isDynamicPath(right.path)),
-        );
       let route: RegisteredRoute | undefined;
       let params: Record<string, string> | null = null;
 
-      for (const candidate of candidates) {
-        const match = matchPath(candidate.path, url.pathname);
-        if (match) {
-          route = candidate;
-          params = match;
-          break;
+      const staticRoute = routeTable.static.get(`${request.method} ${url.pathname}`);
+      if (staticRoute) {
+        route = staticRoute;
+      } else {
+        for (const candidate of routeTable.dynamic) {
+          if (candidate.method !== request.method) continue;
+          const match = candidate.matcher?.(url.pathname);
+          if (match) {
+            route = candidate;
+            params = match;
+            break;
+          }
         }
       }
 
@@ -380,10 +411,12 @@ export function createApp(): MizuApp {
             : params;
         }
 
-        const query = requestQuery(url);
+        const query = requestSchemas?.query || url.search
+          ? requestQuery(url)
+          : undefined;
         if (requestSchemas?.query) {
           context.query = await validate(requestSchemas.query, query);
-        } else if (Object.keys(query).length > 0) {
+        } else if (query && Object.keys(query).length > 0) {
           context.query = query;
         }
 
@@ -461,7 +494,6 @@ export function createApp(): MizuApp {
 
   return app;
 }
-
 export function createRouter(): MizuRouter {
   const definitions: RouteDefinition[] = [];
   const middlewares: Middleware[] = [];

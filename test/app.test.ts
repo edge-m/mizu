@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import {
   createApp,
@@ -149,6 +149,24 @@ test('prefers a static route over a dynamic route', async () => {
   );
 
   expect(await response.json()).toEqual({ route: 'static' });
+});
+
+test('dispatches routes without sorting candidates on each request', async () => {
+  const app = createApp();
+  app.get('/health', {}, async () => ({ status: 200, body: { ok: true } }));
+  app.get('/todos/:id', {}, async () => ({ status: 200, body: { ok: true } }));
+
+  const sort = vi.spyOn(Array.prototype, 'sort');
+  try {
+    const response = await app.fetch(
+      new Request('http://localhost/health'),
+    );
+
+    expect(response.status).toBe(200);
+    expect(sort).not.toHaveBeenCalled();
+  } finally {
+    sort.mockRestore();
+  }
 });
 
 test('passes validated query values including repeated parameters', async () => {
