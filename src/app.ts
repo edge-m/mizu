@@ -33,10 +33,12 @@ type MiddlewareRunner = (
   request: Request,
   terminal: () => Promise<Response>,
 ) => Promise<Response>;
+type ResponseValidator = (status: number, body: unknown) => Promise<unknown>;
 
 type RegisteredRoute = RouteDefinition & {
   matcher: RouteMatcher | null;
   middlewareRunner: MiddlewareRunner;
+  responseValidator: ResponseValidator | null;
 };
 
 type RouteTable = {
@@ -102,6 +104,7 @@ function registerRoute(table: RouteTable, definition: RouteDefinition): void {
     ...definition,
     matcher: isStatic ? null : compileMatcher(definition.path),
     middlewareRunner: createMiddlewareRunner(definition.middlewares),
+    responseValidator: createResponseValidator(definition.contract.response),
   };
 
   if (isStatic) {
@@ -115,6 +118,18 @@ function registerRoute(table: RouteTable, definition: RouteDefinition): void {
       table.dynamic.set(route.method, [route]);
     }
   }
+}
+
+function createResponseValidator(
+  schemas: RouteContract['response'],
+): ResponseValidator | null {
+  if (!schemas) return null;
+
+  return async (status, body) => {
+    const schema = schemas[status];
+    if (!schema) throw new Error('Response schema not found');
+    return validate(schema, body);
+  };
 }
 
 class ValidationFailure extends Error {
@@ -479,14 +494,9 @@ export function createApp(): MizuApp {
         }
 
         let body = result.body;
-        if (route.contract.response) {
-          const responseSchema = route.contract.response[result.status];
-          if (!responseSchema) {
-            return internalServerError();
-          }
-
+        if (route.responseValidator) {
           try {
-            body = await validate(responseSchema, result.body);
+            body = await route.responseValidator(result.status, result.body);
           } catch {
             return internalServerError();
           }

@@ -1,4 +1,5 @@
 import { expect, test, vi } from 'vitest';
+import { request as nodeRequest } from 'node:http';
 import { z } from 'zod';
 import {
   createApp,
@@ -783,6 +784,47 @@ test('streams a Web response body through the Node.js adapter', async () => {
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('chunk-1chunk-2');
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test('aborts the Web request when a Node client disconnects', async () => {
+  const app = createApp();
+  let requestSignal: AbortSignal | undefined;
+
+  app.use(async (request, next) => {
+    requestSignal = request.signal;
+    return next();
+  });
+  app.get('/slow', {}, async () => {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return { status: 200, body: { ok: true } };
+  });
+
+  const server = createNodeServer(app).listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+
+  try {
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Server did not expose a TCP address');
+    }
+
+    const clientRequest = nodeRequest({
+      host: '127.0.0.1',
+      port: address.port,
+      path: '/slow',
+    });
+    clientRequest.on('error', () => undefined);
+    clientRequest.end();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    clientRequest.destroy();
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(requestSignal?.aborted).toBe(true);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

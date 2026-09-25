@@ -251,6 +251,23 @@ Core の Web 標準境界を維持したまま、adapter 固有の変換コス�
 
 各最適化 pass の最後に `npm run bench` を実行する。Hono の依存バージョン、Node.js version、実行環境を記録し、response validation の条件差も維持して明記する。
 
+#### Slice 12 実施結果
+
+2026-09-25 の `vitest bench --run` による再測定（ops/sec）は次のとおり。
+
+| ケース | baseline mizu | optimized mizu | Hono |
+| --- | ---: | ---: | ---: |
+| static route | 283,719 | 315,528 | 427,327 |
+| params route | 259,893 | 281,635 | 395,917 |
+| headers validation | 240,139 | 261,806 | 254,742 |
+| query validation | 250,927 | 270,311 | 200,742 |
+| JSON body validation | 68,195 | 71,591 | 80,055 |
+| response validation | 267,693 | 290,275 | 55,310 |
+| middleware | 276,008 | 305,205 | 365,591 |
+| Node adapter | 2,381 | 2,411 | 4,146 |
+
+実行環境の揺れを含む一回の測定値だが、最適化後の全ケースで baseline を下回らなかった。route dispatch、query 遅延生成、middleware chain 事前構築、response schema validator 事前構築、Node response header 転送、method 別 dynamic route index を実装した。Node adapter では body streaming と client disconnect の回帰テストも追加した。
+
 ## Phase 1: Request入力の拡張
 
 ### Slice 2: GET + path params
@@ -494,11 +511,11 @@ PUT / PATCH / DELETE       完了
 HTTP QUERY method          完了
 Node.js adapter hardening  完了（基本形）
 Cloudflare Workers adapter 完了（基本形）
-performance benchmark    完了（baseline）
-route dispatch optimization 次
-request processing optimization
-Node adapter optimization
-Hono comparison remeasure
+performance benchmark    完了（baseline / remeasure）
+route dispatch optimization 完了
+request processing optimization 完了
+Node adapter optimization 完了（header transfer / disconnect verification）
+Hono comparison remeasure 完了
 ```
 
 ## 対象外
