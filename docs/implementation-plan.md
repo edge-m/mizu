@@ -7,13 +7,25 @@ mizuは、細く薄いVertical Sliceを順番に通し、各Sliceが実際に動
 設計の中心は次のとおり。
 
 - Web標準APIを中心にしたCore
-- Node.jsを第一ターゲットにした実行環境
-- Cloudflare Workersへ展開可能なadapter境界
+- Fetch APIを中心にしたruntime非依存のCore
+- Node.js adapterは`mizu-node`として別パッケージで提供
+- Cloudflare WorkersなどのFetch runtimeへ展開可能なadapter境界
 - Standard Schemaによるruntime validationと型推論
 - `path → contract → handler` の宣言順序
 - request / responseを同じroute contractで扱う
 - OpenAPIやJSON Schemaのような言語間契約は扱わない
 - decorator、DI container、class-based DTOを必須にしない
+
+### パッケージ境界
+
+本体の`mizu`はFetch APIを公開するCoreに限定する。Node.js固有のHTTP server変換は`mizu-node`へ分離し、Node.js利用者だけが追加導入する。
+
+```text
+mizu       Fetch Core / Workers・Edge runtime向け
+mizu-node  Node.js IncomingMessage / ServerResponse adapter
+```
+
+Coreのroute matching、validation、middleware、handler実行は共通化する。FetchとNode.jsで異なるrequest / response変換は各パッケージが担当する。
 
 ## 完了済み
 
@@ -63,7 +75,7 @@ app.get(
 - headers validation
 - response validation
 - 400 / 404 / 500
-- Node.js adapter
+- Fetch handler
 
 ## 現在の実装状況
 
@@ -151,9 +163,11 @@ route 登録順や型推論の高度な整理は、実際の利用例を増や�
 - `QUERY` method の composed router dispatch
 - GET の URL query parameter とは別の HTTP method として扱う
 
-### Slice 9: Node.js adapter hardening
+### Slice 9: `mizu-node` adapter hardening
 
 基本部分を実装済み。
+
+`mizu-node`パッケージへ分離する。Node.js固有APIはCoreへ持ち込まない。
 
 - Node.js request stream を Web `Request.body` へ接続
 - Web `Response.body` の streaming 転送
@@ -169,6 +183,8 @@ route 登録順や型推論の高度な整理は、実際の利用例を増や�
 - Core と同じ Web 標準 `Request` / `Response` の利用
 - Node.js 固有 API への依存なし
 
+Fetch Coreを`mizu`本体の標準entry pointとする。Cloudflare Workers以外のFetch対応runtimeでも同じhandlerを利用できる。
+
 ### Slice 11: Benchmark baseline
 
 実装済み。
@@ -178,7 +194,7 @@ route 登録順や型推論の高度な整理は、実際の利用例を増や�
 - headers / query / JSON body validation
 - response validation
 - middleware
-- Node.js adapter 経由の HTTP fetch
+- `mizu-node` 経由の HTTP fetch
 
 初回 baseline は実行環境依存だが、JSON body validation が Core の他の測定項目より遅い。Hono 4.13.9 と同一プロセスで比較できるベンチも追加した。
 
@@ -232,18 +248,18 @@ route dispatch 改善後に、入力が不要な route の処理を遅延させ�
 - validation の実行回数と順序が変わらない
 - request / response の公開挙動が既存テストで維持される
 
-#### 3. Node.js adapter の軽量化
+#### 3. `mizu-node` adapter の軽量化
 
 Core の Web 標準境界を維持したまま、adapter 固有の変換コストを測定・削減する。
 
 - AbortController と event listener の生成コストを確認
 - request / response stream bridge の不要な変換を削減
 - streaming response、client disconnect、timeout の挙動を維持
-- Node adapter benchmark の throughput と latency を記録
+- `mizu-node` benchmark の throughput と latency を記録
 
 完了条件:
 
-- Node adapter の benchmark が baseline を下回らない
+- `mizu-node` の benchmark が baseline を下回らない
 - body streaming と client disconnect のテストが通る
 - Core に Node.js 固有 API を持ち込まない
 
@@ -443,9 +459,9 @@ app.route('/todos', todoRoutes);
 
 ## Phase 4: Runtime adapters
 
-### Slice 9: Node.js adapterの実運用化
+### Slice 9: `mizu-node` adapterの実運用化
 
-現在のadapterを、実運用で使える最低限のNode.js serverへ広げる。
+`mizu-node`を、実運用で使える最低限のNode.js server packageとして提供する。
 
 実装対象:
 
@@ -459,7 +475,7 @@ app.route('/todos', todoRoutes);
 
 ### Slice 10: Cloudflare Workers adapter
 
-Coreを変更せず、Fetch handlerとしてCloudflare Workersへ接続する。
+`mizu`のFetch handlerをCloudflare Workersへ接続する。
 
 ```ts
 export default {
@@ -488,7 +504,7 @@ export default {
 - JSON body validation
 - response validation on / offではなく、response schemaあり / なし
 - middlewareあり / なし
-- Node.js adapter経由のthroughputとlatency
+- `mizu-node`経由のthroughputとlatency
 
 Mizu側でvalidationを無効化する設定は作らない。validationの最適化やpassthroughは利用するStandard Schema実装の責務とする。Mizuはschema形式の変換やreflectionを追加せず、validationライブラリの最適化を妨げない。
 
@@ -509,12 +525,12 @@ route middleware           完了
 hooks                      採用しない
 PUT / PATCH / DELETE       完了
 HTTP QUERY method          完了
-Node.js adapter hardening  完了（基本形）
+`mizu-node` adapter hardening  完了（基本形）
 Cloudflare Workers adapter 完了（基本形）
 performance benchmark    完了（baseline / remeasure）
 route dispatch optimization 完了
 request processing optimization 完了
-Node adapter optimization 完了（header transfer / disconnect verification）
+`mizu-node` optimization 完了（header transfer / disconnect verification）
 Hono comparison remeasure 完了
 ```
 
@@ -532,4 +548,4 @@ Hono comparison remeasure 完了
 - ORM / database abstraction
 - RPC専用API
 
-Mizuは、TypeScriptの型をfrontendと共有したい場合、またはNode.js / Cloudflare WorkersのWeb標準runtimeを使いたい場合に選ぶ、低オーバーヘッドなAPIサーバCoreを目指す。大規模なAPIも作れるが、大規模アプリケーション全体の構造や業務基盤を内蔵することは目的にしない。
+Mizuは、TypeScriptの型をfrontendと共有したい場合、またはFetch APIを提供するWeb標準runtimeを使いたい場合に選ぶ、低オーバーヘッドなAPIサーバCoreを目指す。Node.jsでserverを起動する場合は`mizu-node`を追加する。大規模なAPIも作れるが、大規模アプリケーション全体の構造や業務基盤を内蔵することは目的にしない。
