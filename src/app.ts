@@ -29,9 +29,14 @@ type RouteDefinition = {
 };
 
 type RouteMatcher = (pathname: string) => Record<string, string> | null;
+type MiddlewareRunner = (
+  request: Request,
+  terminal: () => Promise<Response>,
+) => Promise<Response>;
 
 type RegisteredRoute = RouteDefinition & {
   matcher: RouteMatcher | null;
+  middlewareRunner: MiddlewareRunner;
 };
 
 type RouteTable = {
@@ -96,6 +101,7 @@ function registerRoute(table: RouteTable, definition: RouteDefinition): void {
   const route: RegisteredRoute = {
     ...definition,
     matcher: isStatic ? null : compileMatcher(definition.path),
+    middlewareRunner: createMiddlewareRunner(definition.middlewares),
   };
 
   if (isStatic) {
@@ -219,20 +225,19 @@ function requestQuery(url: URL): Record<string, string | string[]> {
   return query;
 }
 
-function runMiddlewares(
-  middlewares: Middleware[],
-  request: Request,
-  terminal: () => Promise<Response>,
-): Promise<Response> {
-  let next = terminal;
+function createMiddlewareRunner(middlewares: Middleware[]): MiddlewareRunner {
+  let runner: MiddlewareRunner = (_request, terminal) => terminal();
 
   for (let index = middlewares.length - 1; index >= 0; index -= 1) {
     const middleware = middlewares[index];
-    const downstream = next;
-    next = () => Promise.resolve(middleware(request, downstream));
+    const downstream = runner;
+    runner = (request, terminal) =>
+      Promise.resolve(
+        middleware(request, () => downstream(request, terminal)),
+      );
   }
 
-  return next();
+  return runner;
 }
 
 function createRouteTable(): RouteTable {
@@ -242,6 +247,7 @@ function createRouteTable(): RouteTable {
 export function createApp(): MizuApp {
   const routeTable = createRouteTable();
   const middlewares: Middleware[] = [];
+  let middlewareRunner = createMiddlewareRunner(middlewares);
   const addRoute = (definition: RouteDefinition): void => {
     registerRoute(routeTable, definition);
   };
@@ -355,6 +361,7 @@ export function createApp(): MizuApp {
 
     use(middleware: Middleware): MizuApp {
       middlewares.push(middleware);
+      middlewareRunner = createMiddlewareRunner(middlewares);
       return this;
     },
 
@@ -483,13 +490,13 @@ export function createApp(): MizuApp {
         return response(body, result.status, result.headers);
       };
 
-      return runMiddlewares(route.middlewares, request, dispatchRoute);
+      return route.middlewareRunner(request, dispatchRoute);
     },
   };
 
   const dispatch = app.fetch;
   app.fetch = async (request: Request): Promise<Response> => {
-    return runMiddlewares(middlewares, request, () => dispatch(request));
+    return middlewareRunner(request, () => dispatch(request));
   };
 
   return app;
