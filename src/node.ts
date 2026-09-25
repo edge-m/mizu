@@ -58,7 +58,9 @@ export function createNodeServer(
       const webResponse = await app.fetch(webRequest);
 
       response.statusCode = webResponse.status;
-      webResponse.headers.forEach((value, key) => response.setHeader(key, value));
+      for (const [key, value] of webResponse.headers) {
+        response.setHeader(key, value);
+      }
 
       if (!webResponse.body) {
         response.end();
