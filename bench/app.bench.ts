@@ -24,10 +24,31 @@ staticApp.get('/health', {}, async () => ({
 }));
 
 const paramsApp = createApp();
+const paramsSchema = z.object({ id: z.string() });
 paramsApp.get(
   '/todos/:id',
-  { request: { params: z.object({ id: z.string() }) } },
+  { request: { params: paramsSchema } },
   async ({ params }) => ({ status: 200, body: { id: params.id } }),
+);
+
+const multiParamsApp = createApp();
+const multiParamsSchema = z.object({ user: z.string(), post: z.string() });
+multiParamsApp.get(
+  '/users/:user/posts/:post',
+  { request: { params: multiParamsSchema } },
+  async ({ params }) => ({ status: 200, body: params }),
+);
+
+const tripleParamsApp = createApp();
+const tripleParamsSchema = z.object({
+  org: z.string(),
+  user: z.string(),
+  post: z.string(),
+});
+tripleParamsApp.get(
+  '/orgs/:org/users/:user/posts/:post',
+  { request: { params: tripleParamsSchema } },
+  async ({ params }) => ({ status: 200, body: params }),
 );
 
 const headersApp = createApp();
@@ -69,8 +90,8 @@ const honoStatic = new Hono();
 honoStatic.get('/health', async (context) => context.json({ ok: true }));
 
 const honoParams = new Hono();
-honoParams.get('/todos/:id', async (context) =>
-  context.json({ id: context.req.param('id') }),
+honoParams.get('/todos/:id', zValidator('param', paramsSchema), async (context) =>
+  context.json({ id: context.req.valid('param').id }),
 );
 
 const honoHeaders = new Hono();
@@ -106,6 +127,10 @@ honoMiddleware.get('/health', async (context) => context.json({ ok: true }));
 
 const staticRequest = new Request('http://localhost/health');
 const paramsRequest = new Request('http://localhost/todos/1');
+const multiParamsRequest = new Request('http://localhost/users/alice/posts/42');
+const tripleParamsRequest = new Request(
+  'http://localhost/orgs/acme/users/alice/posts/42',
+);
 const headersRequest = new Request('http://localhost/health', {
   headers: { authorization: 'Bearer bench' },
 });
@@ -144,6 +169,14 @@ describe('mizu core', () => {
     await paramsApp.fetch(paramsRequest);
   }, comparableBenchOptions);
 
+  bench('two params route dispatch', async () => {
+    await multiParamsApp.fetch(multiParamsRequest);
+  }, comparableBenchOptions);
+
+  bench('three params route dispatch', async () => {
+    await tripleParamsApp.fetch(tripleParamsRequest);
+  }, comparableBenchOptions);
+
   bench('headers validation', async () => {
     await headersApp.fetch(headersRequest);
   }, comparableBenchOptions);
@@ -172,6 +205,32 @@ describe('hono core', () => {
 
   bench('params route dispatch', async () => {
     await honoParams.fetch(paramsRequest);
+  }, comparableBenchOptions);
+
+  const honoMultiParams = new Hono();
+  honoMultiParams.get(
+    '/users/:user/posts/:post',
+    zValidator('param', multiParamsSchema),
+    async (context) =>
+    context.json({
+      user: context.req.valid('param').user,
+      post: context.req.valid('param').post,
+    }),
+  );
+
+  bench('two params route dispatch', async () => {
+    await honoMultiParams.fetch(multiParamsRequest);
+  }, comparableBenchOptions);
+
+  const honoTripleParams = new Hono();
+  honoTripleParams.get(
+    '/orgs/:org/users/:user/posts/:post',
+    zValidator('param', tripleParamsSchema),
+    async (context) => context.json(context.req.valid('param')),
+  );
+
+  bench('three params route dispatch', async () => {
+    await honoTripleParams.fetch(tripleParamsRequest);
   }, comparableBenchOptions);
 
   bench('headers validation', async () => {

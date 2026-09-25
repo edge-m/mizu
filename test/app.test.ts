@@ -113,6 +113,52 @@ test('passes validated path params to a dynamic GET route', async () => {
   expect(await response.json()).toEqual({ id: '1' });
 });
 
+test('passes two path params through a static segment', async () => {
+  const app = createApp();
+
+  app.get(
+    '/users/:user/posts/:post',
+    { request: { params: z.object({ user: z.string(), post: z.string() }) } },
+    async ({ params }) => ({ status: 200, body: params }),
+  );
+
+  const response = await app.fetch(
+    new Request('http://localhost/users/alice/posts/42'),
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ user: 'alice', post: '42' });
+});
+
+test('passes three path params through static segments', async () => {
+  const app = createApp();
+
+  app.get(
+    '/orgs/:org/users/:user/posts/:post',
+    {
+      request: {
+        params: z.object({
+          org: z.string(),
+          user: z.string(),
+          post: z.string(),
+        }),
+      },
+    },
+    async ({ params }) => ({ status: 200, body: params }),
+  );
+
+  const response = await app.fetch(
+    new Request('http://localhost/orgs/acme/users/alice/posts/42'),
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    org: 'acme',
+    user: 'alice',
+    post: '42',
+  });
+});
+
 test('returns 400 when path params fail validation', async () => {
   const app = createApp();
 

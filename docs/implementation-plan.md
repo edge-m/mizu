@@ -243,6 +243,10 @@ benchmark baseline を壊さず、測定で効果を確認した変更だけを�
 - static route を dynamic route より常に優先
 - route 登録後のdispatchで候補配列のfilter / sortを実行しない
 - params の抽出結果だけを request ごとに生成
+- 1 param routeは登録時にprefix / suffixをコンパイルし、requestごとのpath splitを省略
+- 2 param routeはprefix / 中間static segment / suffixを登録時にコンパイル
+- 3 param routeは複数の中間static segmentを登録時にコンパイル
+- 4 param以上は汎用segment matcherで処理
 
 完了条件:
 
@@ -346,6 +350,8 @@ JSON body validationは同じZod schemaとbody factoryを使用しており、�
 | 1,000 | 257,615 | 159,214 |
 
 Mizuはroute数1〜1,000で約258k〜266k ops/secに収まり、fast pathからTrieへ切り替わる境界でも性能が安定した。最大256 routeの想定ではHonoとほぼ同等で、512 route以上ではMizuの優位性が現れる。一方、少数routeではHonoの絶対性能が高い。
+
+Hono側にもMizuと同じZod params schemaを`zValidator('param', schema)`で適用した。1 param route benchmarkはMizu約276k / Hono約284k ops/sec、2 param route benchmarkはMizu約244k / Hono約266k ops/sec、3 param route benchmarkはMizu約229k / Hono約253k ops/secとなった。専用matcherは追加できたが、param数が増えるほどHonoとの差が残るため、次の最適化候補とする。
 
 ## Phase 1: Request入力の拡張
 

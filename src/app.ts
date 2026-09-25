@@ -28,6 +28,7 @@ type RouteDefinition = {
   middlewares: Middleware[];
 };
 
+type RouteMatcher = (pathname: string) => Record<string, string> | null;
 type MiddlewareRunner = (
   request: Request,
   terminal: () => Promise<Response>,
@@ -35,6 +36,7 @@ type MiddlewareRunner = (
 type ResponseValidator = (status: number, body: unknown) => Promise<unknown>;
 
 type RegisteredRoute = RouteDefinition & {
+  matcher: RouteMatcher | null;
   paramNames: string[];
   segments: string[];
   segmentKinds: boolean[];
@@ -132,26 +134,139 @@ function insertSpecificRoute(
   }
 }
 
-function matchRouteSegments(
-  route: RegisteredRoute,
-  pathname: string,
-): Record<string, string> | null {
-  const segments = pathname.split('/');
-  if (segments.length !== route.segments.length) return null;
+function createRouteMatcher(path: string): RouteMatcher {
+  const segments = path.split('/');
+  const paramNames = segments
+    .filter((segment) => segment.startsWith(':'))
+    .map((segment) => segment.slice(1));
 
-  const params: Record<string, string> = {};
-  let paramIndex = 0;
-  for (let index = 0; index < segments.length; index += 1) {
-    const routeSegment = route.segments[index];
-    if (routeSegment.startsWith(':')) {
-      params[route.paramNames[paramIndex]] = decodeURIComponent(segments[index]);
-      paramIndex += 1;
-    } else if (routeSegment !== segments[index]) {
-      return null;
-    }
+  if (paramNames.length === 1) {
+    const paramIndex = segments.findIndex((segment) => segment.startsWith(':'));
+    const prefix = `${segments.slice(0, paramIndex).join('/')}/`;
+    const suffixSegments = segments.slice(paramIndex + 1);
+    const suffix = suffixSegments.length > 0
+      ? `/${suffixSegments.join('/')}`
+      : '';
+    const paramName = paramNames[0];
+
+    return (pathname) => {
+      if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) {
+        return null;
+      }
+
+      const end = suffix ? pathname.length - suffix.length : pathname.length;
+      const value = pathname.slice(prefix.length, end);
+      if (value.includes('/')) return null;
+
+      return { [paramName]: decodeURIComponent(value) };
+    };
   }
 
-  return params;
+  if (paramNames.length === 2) {
+    const firstParamIndex = segments.findIndex((segment) => segment.startsWith(':'));
+    const secondParamIndex = segments.findIndex(
+      (segment, index) => index > firstParamIndex && segment.startsWith(':'),
+    );
+    const prefix = `${segments.slice(0, firstParamIndex).join('/')}/`;
+    const middleSegments = segments.slice(firstParamIndex + 1, secondParamIndex);
+    const middle = middleSegments.length > 0
+      ? `/${middleSegments.join('/')}/`
+      : '/';
+    const suffixSegments = segments.slice(secondParamIndex + 1);
+    const suffix = suffixSegments.length > 0
+      ? `/${suffixSegments.join('/')}`
+      : '';
+    const [firstParamName, secondParamName] = paramNames;
+
+    return (pathname) => {
+      if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) {
+        return null;
+      }
+
+      const middleStart = pathname.indexOf(middle, prefix.length);
+      if (middleStart === -1) return null;
+
+      const end = suffix ? pathname.length - suffix.length : pathname.length;
+      const firstValue = pathname.slice(prefix.length, middleStart);
+      const secondValue = pathname.slice(
+        middleStart + middle.length,
+        end,
+      );
+      if (firstValue.includes('/') || secondValue.includes('/')) return null;
+
+      return {
+        [firstParamName]: decodeURIComponent(firstValue),
+        [secondParamName]: decodeURIComponent(secondValue),
+      };
+    };
+  }
+
+  if (paramNames.length === 3) {
+    const paramIndices = segments
+      .map((segment, index) => segment.startsWith(':') ? index : -1)
+      .filter((index) => index >= 0);
+    const prefix = `${segments.slice(0, paramIndices[0]).join('/')}/`;
+    const separators = paramIndices.slice(0, -1).map((paramIndex, index) => {
+      const nextParamIndex = paramIndices[index + 1];
+      const middleSegments = segments.slice(paramIndex + 1, nextParamIndex);
+      return middleSegments.length > 0
+        ? `/${middleSegments.join('/')}/`
+        : '/';
+    });
+    const suffixSegments = segments.slice(paramIndices[2] + 1);
+    const suffix = suffixSegments.length > 0
+      ? `/${suffixSegments.join('/')}`
+      : '';
+
+    return (pathname) => {
+      if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) {
+        return null;
+      }
+
+      const end = suffix ? pathname.length - suffix.length : pathname.length;
+      const values: string[] = [];
+      let cursor = prefix.length;
+      for (const separator of separators) {
+        const separatorIndex = pathname.indexOf(separator, cursor);
+        if (separatorIndex === -1) return null;
+        const value = pathname.slice(cursor, separatorIndex);
+        if (value.includes('/')) return null;
+        values.push(value);
+        cursor = separatorIndex + separator.length;
+      }
+
+      const lastValue = pathname.slice(cursor, end);
+      if (lastValue.includes('/')) return null;
+      values.push(lastValue);
+
+      return {
+        [paramNames[0]]: decodeURIComponent(values[0]),
+        [paramNames[1]]: decodeURIComponent(values[1]),
+        [paramNames[2]]: decodeURIComponent(values[2]),
+      };
+    };
+  }
+
+  return (pathname) => {
+    const pathnameSegments = pathname.split('/');
+    if (pathnameSegments.length !== segments.length) return null;
+
+    const params: Record<string, string> = {};
+    let paramIndex = 0;
+    for (let index = 0; index < segments.length; index += 1) {
+      const routeSegment = segments[index];
+      if (routeSegment.startsWith(':')) {
+        params[paramNames[paramIndex]] = decodeURIComponent(
+          pathnameSegments[index],
+        );
+        paramIndex += 1;
+      } else if (routeSegment !== pathnameSegments[index]) {
+        return null;
+      }
+    }
+
+    return params;
+  };
 }
 
 function findCompiledRoute(
@@ -165,7 +280,7 @@ function findCompiledRoute(
   const candidates = suffixCandidates ?? index.routes;
 
   for (const route of candidates) {
-    const params = matchRouteSegments(route, pathname);
+    const params = route.matcher?.(pathname) ?? null;
     if (params) return { route, params };
   }
 
@@ -218,6 +333,7 @@ function registerRoute(table: RouteTable, definition: RouteDefinition): void {
   const isStatic = !isDynamicPath(definition.path);
   const route: RegisteredRoute = {
     ...definition,
+    matcher: isStatic ? null : createRouteMatcher(definition.path),
     paramNames: dynamicParamNames(definition.path),
     segments: definition.path.split('/'),
     segmentKinds: routeSegmentKinds(definition.path),
