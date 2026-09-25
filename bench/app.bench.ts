@@ -1,4 +1,7 @@
 import { afterAll, bench, describe } from 'vitest';
+import { serve } from '@hono/node-server';
+import { Hono } from 'hono';
+import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { createApp, createNodeServer } from '../src/index.js';
 
@@ -50,6 +53,45 @@ middlewareApp.get('/health', {}, async () => ({
   body: { ok: true },
 }));
 
+const honoStatic = new Hono();
+honoStatic.get('/health', (context) => context.json({ ok: true }));
+
+const honoParams = new Hono();
+honoParams.get('/todos/:id', (context) =>
+  context.json({ id: context.req.param('id') }),
+);
+
+const honoHeaders = new Hono();
+honoHeaders.get(
+  '/health',
+  zValidator('header', z.object({ authorization: z.string() })),
+  (context) => context.json({ ok: true }),
+);
+
+const honoQuery = new Hono();
+honoQuery.get(
+  '/todos',
+  zValidator('query', z.object({ limit: z.coerce.number() })),
+  (context) => context.json({ limit: context.req.valid('query').limit }),
+);
+
+const honoBody = new Hono();
+honoBody.post(
+  '/todos',
+  zValidator('json', z.object({ title: z.string() })),
+  (context) => context.json(context.req.valid('json'), 201),
+);
+
+const honoResponse = new Hono();
+honoResponse.get('/health', (context) => {
+  const result = z.object({ ok: z.boolean() }).parse({ ok: true });
+  return context.json(result);
+});
+
+const honoMiddleware = new Hono();
+honoMiddleware.use('*', async (_context, next) => next());
+honoMiddleware.get('/health', (context) => context.json({ ok: true }));
+
 const staticRequest = new Request('http://localhost/health');
 const paramsRequest = new Request('http://localhost/todos/1');
 const headersRequest = new Request('http://localhost/health', {
@@ -95,6 +137,42 @@ describe('mizu core', () => {
   });
 });
 
+describe('hono core', () => {
+  bench('static route dispatch', async () => {
+    await honoStatic.fetch(staticRequest);
+  });
+
+  bench('params route dispatch', async () => {
+    await honoParams.fetch(paramsRequest);
+  });
+
+  bench('headers validation', async () => {
+    await honoHeaders.fetch(headersRequest);
+  });
+
+  bench('query validation', async () => {
+    await honoQuery.fetch(queryRequest);
+  });
+
+  bench('JSON body validation', async () => {
+    await honoBody.fetch(
+      new Request('http://localhost/todos', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'bench' }),
+      }),
+    );
+  });
+
+  bench('response validation', async () => {
+    await honoResponse.fetch(responseRequest);
+  });
+
+  bench('middleware', async () => {
+    await honoMiddleware.fetch(middlewareRequest);
+  });
+});
+
 describe('mizu Node adapter', () => {
   bench(
     'HTTP fetch through Node adapter',
@@ -114,8 +192,30 @@ if (!nodeAdapterAddress || typeof nodeAdapterAddress === 'string') {
 }
 const nodeAdapterUrl = `http://127.0.0.1:${nodeAdapterAddress.port}/health`;
 
+const honoNodeServer = serve({ fetch: honoStatic.fetch, port: 0 });
+await new Promise<void>((resolve) => honoNodeServer.once('listening', resolve));
+const honoNodeAddress = honoNodeServer.address();
+if (!honoNodeAddress || typeof honoNodeAddress === 'string') {
+  throw new Error('Hono server did not expose a TCP address');
+}
+const honoNodeUrl = `http://127.0.0.1:${honoNodeAddress.port}/health`;
+
+describe('hono Node adapter', () => {
+  bench(
+    'HTTP fetch through Node adapter',
+    async () => {
+      const response = await fetch(honoNodeUrl);
+      await response.arrayBuffer();
+    },
+    { iterations: 20 },
+  );
+});
+
 afterAll(async () => {
   await new Promise<void>((resolve, reject) => {
     nodeAdapterServer.close((error) => (error ? reject(error) : resolve()));
+  });
+  await new Promise<void>((resolve, reject) => {
+    honoNodeServer.close((error) => (error ? reject(error) : resolve()));
   });
 });

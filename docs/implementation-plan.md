@@ -180,7 +180,22 @@ route 登録順や型推論の高度な整理は、実際の利用例を増や�
 - middleware
 - Node.js adapter 経由の HTTP fetch
 
-初回 baseline は実行環境依存だが、JSON body validation が Core の他の測定項目より遅く、Node adapter 経由は約 2.5k req/s の結果になった。以後の最適化はこの baseline と比較して判断する。
+初回 baseline は実行環境依存だが、JSON body validation が Core の他の測定項目より遅い。Hono 4.13.9 と同一プロセスで比較できるベンチも追加した。
+
+今回の測定値（ops/sec、同一実行環境の一回分）は次のとおり。
+
+| ケース | mizu | Hono |
+| --- | ---: | ---: |
+| static route | 283,719 | 425,141 |
+| params route | 259,893 | 398,691 |
+| headers validation | 240,139 | 254,184 |
+| query validation | 250,927 | 196,136 |
+| JSON body validation | 68,195 | 81,437 |
+| response validation | 267,693 | 53,847 |
+| middleware | 276,008 | 360,993 |
+| Node adapter | 2,381 | 4,023 |
+
+Hono の validation は `@hono/zod-validator`、response validation は handler 内の Zod parse を使用しているため、response validation は完全な同一条件ではない。以後の最適化はこの baseline と比較して判断する。
 
 ## Phase 1: Request入力の拡張
 

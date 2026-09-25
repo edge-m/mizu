@@ -24,7 +24,10 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@hono/node-server": "^2.1.1",
+    "@hono/zod-validator": "^0.9.1",
     "@types/node": "^26.6.2",
+    "hono": "^4.13.9",
     "tsup": "^8.5.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
