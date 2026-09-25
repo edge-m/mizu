@@ -41,7 +41,7 @@ type RegisteredRoute = RouteDefinition & {
 
 type RouteTable = {
   static: Map<string, RegisteredRoute>;
-  dynamic: RegisteredRoute[];
+  dynamic: Map<string, RegisteredRoute[]>;
 };
 
 type InternalRouter = MizuRouter & {
@@ -108,7 +108,12 @@ function registerRoute(table: RouteTable, definition: RouteDefinition): void {
     const key = `${route.method} ${route.path}`;
     if (!table.static.has(key)) table.static.set(key, route);
   } else {
-    table.dynamic.push(route);
+    const routes = table.dynamic.get(route.method);
+    if (routes) {
+      routes.push(route);
+    } else {
+      table.dynamic.set(route.method, [route]);
+    }
   }
 }
 
@@ -241,7 +246,7 @@ function createMiddlewareRunner(middlewares: Middleware[]): MiddlewareRunner {
 }
 
 function createRouteTable(): RouteTable {
-  return { static: new Map(), dynamic: [] };
+  return { static: new Map(), dynamic: new Map() };
 }
 
 export function createApp(): MizuApp {
@@ -391,8 +396,8 @@ export function createApp(): MizuApp {
       if (staticRoute) {
         route = staticRoute;
       } else {
-        for (const candidate of routeTable.dynamic) {
-          if (candidate.method !== request.method) continue;
+        const dynamicRoutes = routeTable.dynamic.get(request.method) ?? [];
+        for (const candidate of dynamicRoutes) {
           const match = candidate.matcher?.(url.pathname);
           if (match) {
             route = candidate;
