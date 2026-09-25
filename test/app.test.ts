@@ -152,6 +152,25 @@ test('prefers a static route over a dynamic route', async () => {
   expect(await response.json()).toEqual({ route: 'static' });
 });
 
+test('prefers static segments inside dynamic route branches', async () => {
+  const app = createApp();
+
+  app.get('/files/:name/:action', {}, async () => ({
+    status: 200,
+    body: { route: 'dynamic' },
+  }));
+  app.get('/files/:name/edit', {}, async () => ({
+    status: 200,
+    body: { route: 'static-segment' },
+  }));
+
+  const response = await app.fetch(
+    new Request('http://localhost/files/report/edit'),
+  );
+
+  expect(await response.json()).toEqual({ route: 'static-segment' });
+});
+
 test('dispatches routes without sorting candidates on each request', async () => {
   const app = createApp();
   app.get('/health', {}, async () => ({ status: 200, body: { ok: true } }));

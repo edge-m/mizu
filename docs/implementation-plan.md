@@ -235,9 +235,13 @@ benchmark baseline を壊さず、測定で効果を確認した変更だけを�
 最優先。現在の request ごとの `filter().sort()` と path `split()` を route 登録時の処理へ移す。
 
 - static route を method 別の `Map` で lookup
-- dynamic route を登録時に compiled matcher へ変換
+- dynamic route を method 別の segment Trieへ登録
+- 512 route以下は末尾static segmentのdirect indexとsegment matcherをfast pathとして使用
+- 513 route以上はTrieへ切り替える
+- Trieのstatic childをparam childより優先して探索
+- dynamic routeのparam名とroute metadataを登録時に保持
 - static route を dynamic route より常に優先
-- route 登録後の dispatch で配列の sort を実行しない
+- route 登録後のdispatchで候補配列のfilter / sortを実行しない
 - params の抽出結果だけを request ごとに生成
 
 完了条件:
@@ -291,6 +295,8 @@ Core の Web 標準境界を維持したまま、adapter 固有の変換コス�
 
 params validationやresponse validationの条件が異なる測定値は、router性能の直接比較として扱わず、参考値として明記する。
 
+ベンチ実装では、Mizu / Honoのhandlerをasyncに統一し、同じrequest factory、同じTinybench設定（`warmupTime: 250ms`、`time: 1000ms`）をCoreとNode adapterの全ケースへ適用している。Node adapterの測定も同じHTTP `fetch` clientと設定を使い、Mizu側は`mizu-node` package entryを経由する。
+
 #### Slice 12 実施結果
 
 2026-09-25 の `vitest bench --run` による再測定（ops/sec）は次のとおり。
@@ -307,6 +313,39 @@ params validationやresponse validationの条件が異なる測定値は、route
 | Node adapter | 2,381 | 2,411 | 4,146 |
 
 実行環境の揺れを含む一回の測定値だが、最適化後の全ケースで baseline を下回らなかった。route dispatch、query 遅延生成、middleware chain 事前構築、response schema validator 事前構築、Node response header 転送、method 別 dynamic route index を実装した。Node adapter では body streaming と client disconnect の回帰テストも追加した。
+
+#### 比較条件平準化後の再測定
+
+2026-09-25に同一プロセスで2回測定した。ops/secの範囲は次のとおり。
+
+| ケース | Mizu | Hono |
+| --- | ---: | ---: |
+| static route | 323,657–324,137 | 404,768–407,247 |
+| params route | 278,814–289,400 | 375,961–383,447 |
+| headers validation | 258,378–265,430 | 252,456–255,770 |
+| query validation | 270,640–274,684 | 197,984–198,560 |
+| JSON body validation | 79,052–81,694 | 77,395–81,660 |
+| response validation | 287,901–295,141 | 54,604–55,134 |
+| middleware | 306,949–312,758 | 362,459–367,793 |
+| Node adapter | 2,837–2,892 | 5,089–5,210 |
+
+JSON body validationは同じZod schemaとbody factoryを使用しており、平準化後は近い値になった。一方、response validationはMizuのroute response validationとHono handler内のZod parseで実装位置が異なるため、引き続き直接比較ではなく参考値として扱う。
+
+#### Trie化後のroute数別測定
+
+同じ条件（`warmupTime: 250ms`、`time: 1000ms`）で、dynamic route数を増やして測定した。512 route以下はfast path、513 route以上はTrieを使用する。
+
+| dynamic route数 | Mizu | Hono |
+| ---: | ---: | ---: |
+| 1 | 265,579 | 372,180 |
+| 10 | 263,603 | 369,937 |
+| 100 | 263,011 | 319,698 |
+| 256 | 261,426 | 262,360 |
+| 512 | 262,159 | 215,604 |
+| 513 | 260,150 | 214,837 |
+| 1,000 | 257,615 | 159,214 |
+
+Mizuはroute数1〜1,000で約258k〜266k ops/secに収まり、fast pathからTrieへ切り替わる境界でも性能が安定した。最大256 routeの想定ではHonoとほぼ同等で、512 route以上ではMizuの優位性が現れる。一方、少数routeではHonoの絶対性能が高い。
 
 ## Phase 1: Request入力の拡張
 

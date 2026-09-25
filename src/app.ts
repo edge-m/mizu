@@ -28,7 +28,6 @@ type RouteDefinition = {
   middlewares: Middleware[];
 };
 
-type RouteMatcher = (pathname: string) => Record<string, string> | null;
 type MiddlewareRunner = (
   request: Request,
   terminal: () => Promise<Response>,
@@ -36,15 +35,31 @@ type MiddlewareRunner = (
 type ResponseValidator = (status: number, body: unknown) => Promise<unknown>;
 
 type RegisteredRoute = RouteDefinition & {
-  matcher: RouteMatcher | null;
+  paramNames: string[];
+  segments: string[];
+  segmentKinds: boolean[];
   middlewareRunner: MiddlewareRunner;
   responseValidator: ResponseValidator | null;
 };
 
+type DynamicRouteNode = {
+  staticChildren: Map<string, DynamicRouteNode>;
+  paramChild?: DynamicRouteNode;
+  route?: RegisteredRoute;
+};
+
+type DynamicRouteIndex = {
+  routes: RegisteredRoute[];
+  trie: DynamicRouteNode;
+  staticSuffix: Map<string, RegisteredRoute[]>;
+};
+
 type RouteTable = {
   static: Map<string, RegisteredRoute>;
-  dynamic: Map<string, RegisteredRoute[]>;
+  dynamic: Map<string, DynamicRouteIndex>;
 };
+
+const DYNAMIC_TRIE_THRESHOLD = 512;
 
 type InternalRouter = MizuRouter & {
   definitions: RouteDefinition[];
@@ -71,38 +86,141 @@ function isDynamicPath(path: string): boolean {
   return path.split('/').some((segment) => segment.startsWith(':'));
 }
 
+function createDynamicRouteNode(): DynamicRouteNode {
+  return { staticChildren: new Map() };
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function compileMatcher(path: string): RouteMatcher {
-  const names: string[] = [];
-  const pattern = path.split('/').map((segment) => {
-    if (segment.startsWith(':')) {
-      names.push(segment.slice(1));
-      return '([^/]*)';
-    }
-    return escapeRegExp(segment);
-  }).join('/');
-  const matcher = new RegExp(`^${pattern}$`);
+function dynamicParamNames(path: string): string[] {
+  return path
+    .split('/')
+    .filter((segment) => segment.startsWith(':'))
+    .map((segment) => segment.slice(1));
+}
 
-  return (pathname) => {
-    const match = matcher.exec(pathname);
-    if (!match) return null;
+function routeSegmentKinds(path: string): boolean[] {
+  return path.split('/').map((segment) => !segment.startsWith(':'));
+}
 
-    const params: Record<string, string> = {};
-    for (let index = 0; index < names.length; index += 1) {
-      params[names[index]] = decodeURIComponent(match[index + 1]);
+function compareRouteSpecificity(
+  left: RegisteredRoute,
+  right: RegisteredRoute,
+): number {
+  const length = Math.min(left.segmentKinds.length, right.segmentKinds.length);
+  for (let index = 0; index < length; index += 1) {
+    if (left.segmentKinds[index] !== right.segmentKinds[index]) {
+      return left.segmentKinds[index] ? -1 : 1;
     }
-    return params;
+  }
+  return 0;
+}
+
+function insertSpecificRoute(
+  routes: RegisteredRoute[],
+  route: RegisteredRoute,
+): void {
+  const insertionIndex = routes.findIndex(
+    (candidate) => compareRouteSpecificity(route, candidate) < 0,
+  );
+  if (insertionIndex === -1) {
+    routes.push(route);
+  } else {
+    routes.splice(insertionIndex, 0, route);
+  }
+}
+
+function matchRouteSegments(
+  route: RegisteredRoute,
+  pathname: string,
+): Record<string, string> | null {
+  const segments = pathname.split('/');
+  if (segments.length !== route.segments.length) return null;
+
+  const params: Record<string, string> = {};
+  let paramIndex = 0;
+  for (let index = 0; index < segments.length; index += 1) {
+    const routeSegment = route.segments[index];
+    if (routeSegment.startsWith(':')) {
+      params[route.paramNames[paramIndex]] = decodeURIComponent(segments[index]);
+      paramIndex += 1;
+    } else if (routeSegment !== segments[index]) {
+      return null;
+    }
+  }
+
+  return params;
+}
+
+function findCompiledRoute(
+  index: DynamicRouteIndex,
+  pathname: string,
+): { route: RegisteredRoute; params: Record<string, string> } | null {
+  const lastSlash = pathname.lastIndexOf('/');
+  const suffixCandidates = index.staticSuffix.get(
+    pathname.slice(lastSlash + 1),
+  );
+  const candidates = suffixCandidates ?? index.routes;
+
+  for (const route of candidates) {
+    const params = matchRouteSegments(route, pathname);
+    if (params) return { route, params };
+  }
+
+  return null;
+}
+
+function findDynamicRoute(
+  root: DynamicRouteNode,
+  pathname: string,
+): { route: RegisteredRoute; params: Record<string, string> } | null {
+  const segments = pathname.split('/');
+
+  const visit = (
+    node: DynamicRouteNode,
+    index: number,
+    values: string[],
+  ): { route: RegisteredRoute; values: string[] } | null => {
+    if (index === segments.length) {
+      return node.route ? { route: node.route, values } : null;
+    }
+
+    const staticChild = node.staticChildren.get(segments[index]);
+    if (staticChild) {
+      const match = visit(staticChild, index + 1, values);
+      if (match) return match;
+    }
+
+    if (node.paramChild) {
+      values.push(segments[index]);
+      const match = visit(node.paramChild, index + 1, values);
+      if (match) return match;
+      values.pop();
+    }
+
+    return null;
   };
+
+  const match = visit(root, 0, []);
+  if (!match) return null;
+
+  const params: Record<string, string> = {};
+  for (let index = 0; index < match.route.paramNames.length; index += 1) {
+    params[match.route.paramNames[index]] = decodeURIComponent(match.values[index]);
+  }
+
+  return { route: match.route, params };
 }
 
 function registerRoute(table: RouteTable, definition: RouteDefinition): void {
   const isStatic = !isDynamicPath(definition.path);
   const route: RegisteredRoute = {
     ...definition,
-    matcher: isStatic ? null : compileMatcher(definition.path),
+    paramNames: dynamicParamNames(definition.path),
+    segments: definition.path.split('/'),
+    segmentKinds: routeSegmentKinds(definition.path),
     middlewareRunner: createMiddlewareRunner(definition.middlewares),
     responseValidator: createResponseValidator(definition.contract.response),
   };
@@ -111,12 +229,44 @@ function registerRoute(table: RouteTable, definition: RouteDefinition): void {
     const key = `${route.method} ${route.path}`;
     if (!table.static.has(key)) table.static.set(key, route);
   } else {
-    const routes = table.dynamic.get(route.method);
-    if (routes) {
-      routes.push(route);
-    } else {
-      table.dynamic.set(route.method, [route]);
+    let index = table.dynamic.get(route.method);
+    if (!index) {
+      index = {
+        routes: [],
+        trie: createDynamicRouteNode(),
+        staticSuffix: new Map(),
+      };
+      table.dynamic.set(route.method, index);
     }
+
+    insertSpecificRoute(index.routes, route);
+
+    const finalSegment = route.segments[route.segments.length - 1];
+    if (!finalSegment.startsWith(':')) {
+      let candidates = index.staticSuffix.get(finalSegment);
+      if (!candidates) {
+        candidates = [];
+        index.staticSuffix.set(finalSegment, candidates);
+      }
+      insertSpecificRoute(candidates, route);
+    }
+
+    let node = index.trie;
+    for (const segment of route.path.split('/')) {
+      if (segment.startsWith(':')) {
+        node.paramChild ??= createDynamicRouteNode();
+        node = node.paramChild;
+      } else {
+        let child = node.staticChildren.get(segment);
+        if (!child) {
+          child = createDynamicRouteNode();
+          node.staticChildren.set(segment, child);
+        }
+        node = child;
+      }
+    }
+
+    node.route ??= route;
   }
 }
 
@@ -411,13 +561,14 @@ export function createApp(): MizuApp {
       if (staticRoute) {
         route = staticRoute;
       } else {
-        const dynamicRoutes = routeTable.dynamic.get(request.method) ?? [];
-        for (const candidate of dynamicRoutes) {
-          const match = candidate.matcher?.(url.pathname);
+        const dynamicIndex = routeTable.dynamic.get(request.method);
+        if (dynamicIndex) {
+          const match = dynamicIndex.routes.length > DYNAMIC_TRIE_THRESHOLD
+            ? findDynamicRoute(dynamicIndex.trie, url.pathname)
+            : findCompiledRoute(dynamicIndex, url.pathname);
           if (match) {
-            route = candidate;
-            params = match;
-            break;
+            route = match.route;
+            params = match.params;
           }
         }
       }

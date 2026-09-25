@@ -3,7 +3,19 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { createApp, createNodeServer } from '../src/index.js';
+import { createApp } from '../src/index.js';
+import { createNodeServer } from '../packages/mizu-node/src/index.js';
+
+const comparableBenchOptions = {
+  time: 1_000,
+  warmupTime: 250,
+};
+
+const bodyRequest = () => new Request('http://localhost/todos', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ title: 'bench' }),
+});
 
 const staticApp = createApp();
 staticApp.get('/health', {}, async () => ({
@@ -54,10 +66,10 @@ middlewareApp.get('/health', {}, async () => ({
 }));
 
 const honoStatic = new Hono();
-honoStatic.get('/health', (context) => context.json({ ok: true }));
+honoStatic.get('/health', async (context) => context.json({ ok: true }));
 
 const honoParams = new Hono();
-honoParams.get('/todos/:id', (context) =>
+honoParams.get('/todos/:id', async (context) =>
   context.json({ id: context.req.param('id') }),
 );
 
@@ -65,32 +77,32 @@ const honoHeaders = new Hono();
 honoHeaders.get(
   '/health',
   zValidator('header', z.object({ authorization: z.string() })),
-  (context) => context.json({ ok: true }),
+  async (context) => context.json({ ok: true }),
 );
 
 const honoQuery = new Hono();
 honoQuery.get(
   '/todos',
   zValidator('query', z.object({ limit: z.coerce.number() })),
-  (context) => context.json({ limit: context.req.valid('query').limit }),
+  async (context) => context.json({ limit: context.req.valid('query').limit }),
 );
 
 const honoBody = new Hono();
 honoBody.post(
   '/todos',
   zValidator('json', z.object({ title: z.string() })),
-  (context) => context.json(context.req.valid('json'), 201),
+  async (context) => context.json(context.req.valid('json'), 201),
 );
 
 const honoResponse = new Hono();
-honoResponse.get('/health', (context) => {
+honoResponse.get('/health', async (context) => {
   const result = z.object({ ok: z.boolean() }).parse({ ok: true });
   return context.json(result);
 });
 
 const honoMiddleware = new Hono();
 honoMiddleware.use('*', async (_context, next) => next());
-honoMiddleware.get('/health', (context) => context.json({ ok: true }));
+honoMiddleware.get('/health', async (context) => context.json({ ok: true }));
 
 const staticRequest = new Request('http://localhost/health');
 const paramsRequest = new Request('http://localhost/todos/1');
@@ -101,76 +113,100 @@ const queryRequest = new Request('http://localhost/todos?limit=10');
 const responseRequest = new Request('http://localhost/health');
 const middlewareRequest = new Request('http://localhost/health');
 
+const routeCounts = [1, 10, 100, 256, 512, 513, 1_000];
+const mizuRouteCountApps = routeCounts.map((count) => {
+  const app = createApp();
+  for (let index = 0; index < count; index += 1) {
+    app.get(`/items/:id/action-${index}`, {}, async ({ params }) => ({
+      status: 200,
+      body: { id: params.id, action: index },
+    }));
+  }
+  return app;
+});
+
+const honoRouteCountApps = routeCounts.map((count) => {
+  const app = new Hono();
+  for (let index = 0; index < count; index += 1) {
+    app.get(`/items/:id/action-${index}`, async (context) =>
+      context.json({ id: context.req.param('id'), action: index }),
+    );
+  }
+  return app;
+});
+
 describe('mizu core', () => {
   bench('static route dispatch', async () => {
     await staticApp.fetch(staticRequest);
-  });
+  }, comparableBenchOptions);
 
   bench('params route dispatch', async () => {
     await paramsApp.fetch(paramsRequest);
-  });
+  }, comparableBenchOptions);
 
   bench('headers validation', async () => {
     await headersApp.fetch(headersRequest);
-  });
+  }, comparableBenchOptions);
 
   bench('query validation', async () => {
     await queryApp.fetch(queryRequest);
-  });
+  }, comparableBenchOptions);
 
   bench('JSON body validation', async () => {
-    await bodyApp.fetch(
-      new Request('http://localhost/todos', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ title: 'bench' }),
-      }),
-    );
-  });
+    await bodyApp.fetch(bodyRequest());
+  }, comparableBenchOptions);
 
   bench('response validation', async () => {
     await responseApp.fetch(responseRequest);
-  });
+  }, comparableBenchOptions);
 
   bench('middleware', async () => {
     await middlewareApp.fetch(middlewareRequest);
-  });
+  }, comparableBenchOptions);
 });
 
 describe('hono core', () => {
   bench('static route dispatch', async () => {
     await honoStatic.fetch(staticRequest);
-  });
+  }, comparableBenchOptions);
 
   bench('params route dispatch', async () => {
     await honoParams.fetch(paramsRequest);
-  });
+  }, comparableBenchOptions);
 
   bench('headers validation', async () => {
     await honoHeaders.fetch(headersRequest);
-  });
+  }, comparableBenchOptions);
 
   bench('query validation', async () => {
     await honoQuery.fetch(queryRequest);
-  });
+  }, comparableBenchOptions);
 
   bench('JSON body validation', async () => {
-    await honoBody.fetch(
-      new Request('http://localhost/todos', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ title: 'bench' }),
-      }),
-    );
-  });
+    await honoBody.fetch(bodyRequest());
+  }, comparableBenchOptions);
 
   bench('response validation', async () => {
     await honoResponse.fetch(responseRequest);
-  });
+  }, comparableBenchOptions);
 
   bench('middleware', async () => {
     await honoMiddleware.fetch(middlewareRequest);
-  });
+  }, comparableBenchOptions);
+});
+
+describe('route dispatch by route count', () => {
+  for (const [index, count] of routeCounts.entries()) {
+    const request = new Request(`http://localhost/items/42/action-${count - 1}`);
+
+    bench(`mizu ${count} dynamic routes`, async () => {
+      await mizuRouteCountApps[index].fetch(request);
+    }, comparableBenchOptions);
+
+    bench(`hono ${count} dynamic routes`, async () => {
+      await honoRouteCountApps[index].fetch(request);
+    }, comparableBenchOptions);
+  }
 });
 
 describe('mizu Node adapter', () => {
@@ -180,7 +216,7 @@ describe('mizu Node adapter', () => {
       const response = await fetch(nodeAdapterUrl);
       await response.arrayBuffer();
     },
-    { iterations: 20 },
+    comparableBenchOptions,
   );
 });
 
@@ -207,7 +243,7 @@ describe('hono Node adapter', () => {
       const response = await fetch(honoNodeUrl);
       await response.arrayBuffer();
     },
-    { iterations: 20 },
+    comparableBenchOptions,
   );
 });
 
