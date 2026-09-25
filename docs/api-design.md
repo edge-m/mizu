@@ -2,7 +2,7 @@
 
 ## 概要
 
-mizu は、Node.js 向けの軽量な API サーバライブラリである。
+mizu は、Fetch APIを中心にした軽量な API サーバCoreである。Node.jsでHTTP serverを起動する場合は、別パッケージの`mizu-node`を利用する。
 
 目標は、Hono のような軽快さを保ちながら、Web標準のHTTP API上でリクエストとレスポンスの契約を route declaration に集約し、handler まで一貫して型安全にすること。利用者は HTTP の外部仕様を宣言し、その仕様を実装する handler を書く。
 
@@ -50,7 +50,7 @@ app.get(
 );
 ```
 
-この段階で実装するのは、`headers`、固定path、GET、response status `200`、Web標準の `app.fetch()`、Node.js adapter、validation error `400`、route not found `404` である。params、query、body、middleware、Cloudflare Workers adapterは後続のSliceで追加する。
+この段階で実装するのは、`headers`、固定path、GET、response status `200`、Web標準の `app.fetch()`、validation error `400`、route not found `404` である。Node.js serverは`mizu-node`、params、query、body、middleware、Cloudflare Workers adapterは別のSliceで扱う。
 
 ## 基本API（設計）
 
@@ -235,7 +235,7 @@ handlerはroute contractの実装である。
 ```ts
 type Handler<Contract> = (
   context: InferRequest<Contract['request']>,
-) => MaybePromise<InferResponse<Contract['response']>>;
+) => Promise<InferResponse<Contract['response']>>;
 ```
 
 通常は `app.post` の型推論に任せ、handlerへ明示的なジェネリクスを付けない。
@@ -261,6 +261,14 @@ const createTodo: Handler<typeof createTodoContract> = async ({ body }) => {
 
 app.post('/todos', createTodoContract, createTodo);
 ```
+
+### 非同期実行モデル
+
+handlerとmiddlewareは非同期関数を基本契約とする。HTTP handlerはDB、外部API、filesystem、streamなどのI/Oを扱うことが多く、Promiseを返す実行モデルを標準にする。
+
+同期関数専用の高速経路は提供しない。同期的な処理だけを行うhandlerも`async`関数として実装する。これにより、handler / middlewareの型、実行順序、benchmark条件を統一する。
+
+`MaybePromise`は公開APIから削除し、handlerとmiddlewareをasync-onlyへ統一する。
 
 ## APIの設計原則
 
@@ -296,15 +304,15 @@ mizu CoreはNode.js固有のHTTPオブジェクトではなく、Web標準APIを
 - `ReadableStream`
 - `AbortSignal`
 
-Node.jsではHTTP server adapterがNode.jsの接続をWeb標準の `Request` へ変換し、Cloudflare WorkersではWorkerのFetch handlerに接続する。
+Node.jsでは別パッケージの`mizu-node`がHTTP serverの接続を処理し、Cloudflare WorkersではWorkerのFetch handlerに接続する。
 
 ```text
-Web Standard Core
-  ├── Node.js adapter
-  └── Cloudflare Workers adapter
+Fetch Core (`mizu`)
+  ├── `mizu-node`
+  └── Fetch runtime integration
 ```
 
-これにより、アプリケーションのrouteとhandlerはruntime adapterに依存せず、Node.jsとCloudflare Workersの双方で再利用できる。Node.jsを第一ターゲットとしつつ、Web標準APIを境界にすることでEdge runtimeへの展開を可能にする。
+これにより、アプリケーションのrouteとhandlerはruntime adapterに依存せず、Node.jsとFetch runtimeの双方で再利用できる。Node.js固有コードをCoreから分離し、Edge runtimeへの展開を可能にする。
 
 パフォーマンス上の基本方針は次のとおり。
 

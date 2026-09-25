@@ -12,7 +12,6 @@ export type {
   GetContract,
   GetHandler,
   GetResponse,
-  MaybePromise,
   Middleware,
   MizuApp,
   MizuRouter,

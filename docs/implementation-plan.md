@@ -27,6 +27,19 @@ mizu-node  Node.js IncomingMessage / ServerResponse adapter
 
 Coreのroute matching、validation、middleware、handler実行は共通化する。FetchとNode.jsで異なるrequest / response変換は各パッケージが担当する。
 
+### 非同期実行モデル
+
+handlerとmiddlewareはasync-onlyを基本契約とする。同期handler専用の高速経路は設けず、Promiseを返す実行モデルに統一する。
+
+- handlerは`Promise<ResponseData>`を返す
+- middlewareは`Promise<Response>`を返す
+- `MaybePromise`は公開APIから削除済み
+- 同期処理だけのhandlerも`async`関数として記述する
+
+async-only化の目的は、I/O中心のHTTP処理に実行モデルを合わせ、型・middleware・benchmark条件を単純化することにある。同期関数を許容するためのruntime分岐や`Promise.resolve()`のfallbackは追加しない。
+
+async-only化と`mizu-node`のworkspace package化を実装済み。既存の`mizu`からのNode adapter exportは移行期間の互換層として残す。
+
 ## 完了済み
 
 ### Slice 0: TypeScriptライブラリ基盤
@@ -265,7 +278,18 @@ Core の Web 標準境界を維持したまま、adapter 固有の変換コス�
 
 #### 4. Hono 比較の再測定
 
-各最適化 pass の最後に `npm run bench` を実行する。Hono の依存バージョン、Node.js version、実行環境を記録し、response validation の条件差も維持して明記する。
+各最適化 pass の最後に `npm run bench` を実行する。Hono の依存バージョン、Node.js version、実行環境を記録する。
+
+比較条件は可能な限り統一する。
+
+- Mizu / Honoともにasync handlerを使用する
+- response shape、request生成、JSON body生成を一致させる
+- validationの有無とライブラリ条件を一致させる
+- route数、static / dynamic routeの配置を一致させる
+- Node adapterは同じHTTP clientとwarm-up条件で測定する
+- 1回の数値だけでなく複数回の傾向を確認する
+
+params validationやresponse validationの条件が異なる測定値は、router性能の直接比較として扱わず、参考値として明記する。
 
 #### Slice 12 実施結果
 
@@ -532,6 +556,8 @@ route dispatch optimization 完了
 request processing optimization 完了
 `mizu-node` optimization 完了（header transfer / disconnect verification）
 Hono comparison remeasure 完了
+async-only public API migration 完了
+`mizu-node` workspace package化 完了（root compatibility exportあり）
 ```
 
 ## 対象外

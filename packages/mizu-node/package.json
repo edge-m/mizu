@@ -1,0 +1,30 @@
+{
+  "name": "mizu-node",
+  "version": "0.1.0",
+  "description": "Node.js HTTP adapter for mizu.",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "mizu": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "tsup": "^8.5.0",
+    "typescript": "^5.7.2"
+  }
+}

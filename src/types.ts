@@ -46,16 +46,14 @@ export type GetResponse<Contract extends GetContract> =
     headers?: HeadersInit;
   };
 
-export type MaybePromise<Value> = Value | Promise<Value>;
-
 export type Middleware = (
   request: Request,
   next: () => Promise<Response>,
-) => MaybePromise<Response>;
+) => Promise<Response>;
 
 export type GetHandler<Contract extends GetContract> = (
   context: GetContext<Contract>,
-) => MaybePromise<GetResponse<Contract>>;
+) => Promise<GetResponse<Contract>>;
 
 export type PostContract = {
   request?: RequestSchemas;
@@ -74,7 +72,7 @@ export type PostResponse<Contract extends PostContract> = {
 
 export type PostHandler<Contract extends PostContract> = (
   context: PostContext<Contract>,
-) => MaybePromise<PostResponse<Contract>>;
+) => Promise<PostResponse<Contract>>;
 
 export type PutContract = PostContract;
 export type PutHandler<Contract extends PutContract> = PostHandler<Contract>;
