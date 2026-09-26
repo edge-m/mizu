@@ -1,4 +1,5 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec';
+import { BodyLimitExceeded } from './operational.js';
 import type {
   AnySchema,
   HeadContract,
@@ -35,7 +36,7 @@ type RouteDefinition = {
 type RouteMatcher = (pathname: string) => Record<string, string> | null;
 type MiddlewareRunner = (
   request: Request,
-  terminal: () => Promise<Response>,
+  terminal: (request?: Request) => Promise<Response>,
 ) => Promise<Response>;
 type ResponseValidator = (status: number, body: unknown) => Promise<unknown>;
 
@@ -572,14 +573,16 @@ function requestQuery(url: URL): Record<string, string | string[]> {
 }
 
 function createMiddlewareRunner(middlewares: Middleware[]): MiddlewareRunner {
-  let runner: MiddlewareRunner = (_request, terminal) => terminal();
+  let runner: MiddlewareRunner = (request, terminal) => terminal(request);
 
   for (let index = middlewares.length - 1; index >= 0; index -= 1) {
     const middleware = middlewares[index];
     const downstream = runner;
     runner = (request, terminal) =>
       Promise.resolve(
-        middleware(request, () => downstream(request, terminal)),
+        middleware(request, (nextRequest) =>
+          downstream(nextRequest ?? request, terminal),
+        ),
       );
   }
 
@@ -794,7 +797,9 @@ export function createApp(): MizuApp {
       const route = match.route;
       const params = match.params;
 
-      const dispatchRoute = async (): Promise<Response> => {
+      const dispatchRoute = async (
+        activeRequest: Request = request,
+      ): Promise<Response> => {
         const context: Record<string, unknown> = {};
 
         try {
@@ -818,20 +823,21 @@ export function createApp(): MizuApp {
         if (requestSchemas?.headers) {
           context.headers = await validate(
             requestSchemas.headers,
-            requestHeaders(request),
+            requestHeaders(activeRequest),
           );
         }
 
         if (requestSchemas?.body) {
-          const contentType = request.headers.get('content-type');
+          const contentType = activeRequest.headers.get('content-type');
           if (!contentType?.toLowerCase().startsWith('application/json')) {
             throw new BodyParsingFailure();
           }
 
           let body: unknown;
           try {
-            body = await request.json();
-          } catch {
+            body = await activeRequest.json();
+          } catch (error) {
+            if (error instanceof BodyLimitExceeded) throw error;
             throw new BodyParsingFailure();
           }
 
@@ -845,6 +851,10 @@ export function createApp(): MizuApp {
 
           if (error instanceof BodyParsingFailure) {
             return badRequest();
+          }
+
+          if (error instanceof BodyLimitExceeded) {
+            return new Response('Payload Too Large', { status: 413 });
           }
 
           return internalServerError();
@@ -879,7 +889,9 @@ export function createApp(): MizuApp {
 
   const dispatch = app.fetch;
   app.fetch = async (request: Request): Promise<Response> => {
-    return middlewareRunner(request, () => dispatch(request));
+    return middlewareRunner(request, (nextRequest) =>
+      dispatch(nextRequest ?? request),
+    );
   };
 
   return app;

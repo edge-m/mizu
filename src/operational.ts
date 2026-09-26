@@ -1,5 +1,11 @@
 import type { Middleware } from './types.js';
 
+export class BodyLimitExceeded extends Error {
+  constructor() {
+    super('Request body exceeds the configured limit');
+  }
+}
+
 export type LogSink = (message: string) => void;
 
 export function logger(sink: LogSink = (message) => console.log(message)): Middleware {
@@ -61,6 +67,40 @@ export function bodyLimit(maxBytes: number): Middleware {
       return new Response('Payload Too Large', { status: 413 });
     }
 
-    return next();
+    if (!request.body) return next();
+
+    const reader = request.body.getReader();
+    let received = 0;
+    const limitedBody = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          return;
+        }
+
+        received += value.byteLength;
+        if (received > maxBytes) {
+          await reader.cancel();
+          controller.error(new BodyLimitExceeded());
+          return;
+        }
+
+        controller.enqueue(value);
+      },
+      async cancel(reason) {
+        await reader.cancel(reason);
+      },
+    });
+
+    const headers = new Headers(request.headers);
+    headers.delete('content-length');
+    const limitedRequest = new Request(request, {
+      body: limitedBody,
+      headers,
+      duplex: 'half',
+    } as RequestInit & { duplex: 'half' });
+
+    return next(limitedRequest);
   };
 }

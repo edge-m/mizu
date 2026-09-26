@@ -48,7 +48,7 @@ export type GetResponse<Contract extends GetContract> =
 
 export type Middleware = (
   request: Request,
-  next: () => Promise<Response>,
+  next: (request?: Request) => Promise<Response>,
 ) => Promise<Response>;
 
 export type GetHandler<Contract extends GetContract> = (
