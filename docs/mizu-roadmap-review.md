@@ -205,3 +205,5 @@ HonoはContext、middleware、helper、RPC、testing、WebSocket、複数runtime
 ## 判断の要約
 
 最初に実装するべきなのは、Honoの機能数を追うことではなく、**契約を保ったままHTTP境界を扱えるContext / Response / Error APIを完成させること**である。RPC、OpenAPI、WebSocket、JSX、追加runtimeは、その境界が安定した後に別packageまたはadapterとして追加する。
+
+実装後のCore / adapter / 別packageの責務は、[mizu extension boundaries](./mizu-extension-boundaries.md) に定義する。

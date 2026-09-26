@@ -73,3 +73,30 @@ test('adds cache-control without overwriting a route policy', async () => {
   );
   expect(customResponse.headers.get('cache-control')).toBe('no-store');
 });
+
+test('runs path-aware middleware and exposes route metadata', async () => {
+  const app = createApp();
+
+  app.use('/admin', async (_request, next, context) => {
+    context?.set('scope', 'admin');
+    return next();
+  });
+  app.get('/admin/users/:id', {}, async ({ ctx }) => ({
+    status: 200,
+    body: {
+      scope: ctx.get('scope'),
+      route: ctx.routePath,
+      base: ctx.basePath,
+    },
+  }));
+
+  const matched = await app.fetch(new Request('http://localhost/admin/users/1'));
+  expect(await matched.json()).toEqual({
+    scope: 'admin',
+    route: '/admin/users/:id',
+    base: '/',
+  });
+
+  const skipped = await app.fetch(new Request('http://localhost/public'));
+  expect(skipped.status).toBe(404);
+});

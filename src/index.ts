@@ -14,13 +14,19 @@ export {
 } from './cookie.js';
 export { createNodeServer } from './node.js';
 export { createRouter } from './app.js';
+export { Context } from './context.js';
+export { HttpError } from './errors.js';
+export { extractBody } from './body.js';
 export { createWorkerHandler } from './worker.js';
+export { request } from './testing.js';
 export type { WorkerHandler } from './worker.js';
 export type { NodeServerOptions } from './node.js';
 export type {
   AnySchema,
   DeleteContract,
   DeleteHandler,
+  ErrorHandler,
+  ErrorHandlerResult,
   HeadContract,
   HeadHandler,
   GetContext,
@@ -30,6 +36,7 @@ export type {
   Middleware,
   MizuApp,
   MizuRouter,
+  NotFoundHandler,
   PatchContract,
   PatchHandler,
   PostContext,
@@ -44,9 +51,12 @@ export type {
   OptionsHandler,
   RequestSchemas,
   ResponseSchemas,
+  ResponseData,
   RouteContract,
   SchemaOutput,
 } from './types.js';
+export type { ContextVariables } from './context.js';
+export type { BodyParsingError } from './body.js';
 export type { CookieOptions, SameSite } from './cookie.js';
 export type { CorsOptions, CorsOrigin } from './cors.js';
 export type { CsrfOptions, CsrfOrigin } from './csrf.js';

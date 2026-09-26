@@ -1,4 +1,4 @@
-import type { GetHandler, Middleware } from '../src/types.js';
+import type { Context, GetHandler, Middleware, MizuApp } from '../src/types.js';
 import { expect, test } from 'vitest';
 
 const asyncHandler: GetHandler<{}> = async () => ({
@@ -7,6 +7,16 @@ const asyncHandler: GetHandler<{}> = async () => ({
 });
 
 const asyncMiddleware: Middleware = async (_request, next) => next();
+
+const contextHandler: GetHandler<{}> = async ({ ctx }) => {
+  const context: Context = ctx;
+  context.header('x-test', 'ok');
+  context.set('value', 'typed');
+  return context.text(context.get('value'));
+};
+
+const requestHelper: MizuApp['request'] = (input, init) =>
+  Promise.resolve(new Response(`${String(input)}${init?.method ?? ''}`));
 
 // @ts-expect-error synchronous handlers are no longer accepted
 const syncHandler: GetHandler<{}> = () => ({
@@ -19,6 +29,8 @@ const syncMiddleware: Middleware = (_request, _next) => new Response('ok');
 
 void asyncHandler;
 void asyncMiddleware;
+void contextHandler;
+void requestHelper;
 void syncHandler;
 void syncMiddleware;
 

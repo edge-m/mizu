@@ -1,5 +1,9 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { BodyLimitExceeded } from './operational.js';
+import { Context } from './context.js';
+import { HttpError } from './errors.js';
+import { BodyParsingError, extractBody } from './body.js';
+import { request as createRequest } from './testing.js';
 import type {
   AnySchema,
   HeadContract,
@@ -23,6 +27,9 @@ import type {
   OptionsHandler,
   RouteContract,
   SchemaOutput,
+  ErrorHandler,
+  ErrorHandlerResult,
+  NotFoundHandler,
 } from './types.js';
 
 type RouteDefinition = {
@@ -31,12 +38,14 @@ type RouteDefinition = {
   contract: RouteContract;
   handler: (context: Record<string, unknown>) => unknown;
   middlewares: Middleware[];
+  basePath?: string;
 };
 
 type RouteMatcher = (pathname: string) => Record<string, string> | null;
 type MiddlewareRunner = (
   request: Request,
   terminal: (request?: Request) => Promise<Response>,
+  context?: Context,
 ) => Promise<Response>;
 type ResponseValidator = (status: number, body: unknown) => Promise<unknown>;
 
@@ -85,8 +94,9 @@ function routeDefinition(
   contract: RouteContract,
   handler: (context: Record<string, unknown>) => unknown,
   middlewares: Middleware[] = [],
+  basePath?: string,
 ): RouteDefinition {
-  return { method, path, contract, handler, middlewares };
+  return { method, path, contract, handler, middlewares, basePath };
 }
 
 function isDynamicPath(path: string): boolean {
@@ -460,12 +470,6 @@ class ValidationFailure extends Error {
   }
 }
 
-class BodyParsingFailure extends Error {
-  constructor() {
-    super('Request body could not be parsed');
-  }
-}
-
 async function validate<Schema extends AnySchema>(
   schema: Schema,
   value: unknown,
@@ -501,6 +505,11 @@ function notFound(): Response {
 
 function internalServerError(): Response {
   return json({ error: 'Internal Server Error' }, 500);
+}
+
+function errorResponse(result: ErrorHandlerResult): Response {
+  if (result instanceof Response) return result;
+  return response(result.body, result.status, result.headers);
 }
 
 function response(
@@ -578,15 +587,28 @@ function createMiddlewareRunner(middlewares: Middleware[]): MiddlewareRunner {
   for (let index = middlewares.length - 1; index >= 0; index -= 1) {
     const middleware = middlewares[index];
     const downstream = runner;
-    runner = (request, terminal) =>
+    runner = (request, terminal, context) =>
       Promise.resolve(
-        middleware(request, (nextRequest) =>
-          downstream(nextRequest ?? request, terminal),
+        middleware(
+          request,
+          (nextRequest) => downstream(nextRequest ?? request, terminal, context),
+          context,
         ),
       );
   }
 
   return runner;
+}
+
+function pathMiddleware(path: string, middleware: Middleware): Middleware {
+  const matcher = isDynamicPath(path) ? createRouteMatcher(path) : null;
+  return (request, next, context) => {
+    const pathname = new URL(request.url).pathname;
+    const matches = matcher
+      ? matcher(pathname) !== null
+      : pathname === path || pathname.startsWith(`${path.replace(/\/$/, '')}/`);
+    return matches ? middleware(request, next, context) : next();
+  };
 }
 
 function createRouteTable(): RouteTable {
@@ -595,8 +617,35 @@ function createRouteTable(): RouteTable {
 
 export function createApp(): MizuApp {
   const routeTable = createRouteTable();
+  const requestContexts = new WeakMap<Request, Context>();
   const middlewares: Middleware[] = [];
   let middlewareRunner = createMiddlewareRunner(middlewares);
+  let onErrorHandler: ErrorHandler = async (error) => {
+    if (error instanceof ValidationFailure) return badRequest(error.issues);
+    if (error instanceof BodyParsingError) return badRequest();
+    if (error instanceof BodyLimitExceeded) {
+      return new Response('Payload Too Large', { status: 413 });
+    }
+    if (error instanceof HttpError) {
+      return {
+        status: error.status,
+        body: error.body,
+        headers: error.headers,
+      };
+    }
+    return internalServerError();
+  };
+  let notFoundHandler: NotFoundHandler = async () => notFound();
+  const handleError = async (
+    error: unknown,
+    request: Request,
+  ): Promise<Response> => {
+    try {
+      return errorResponse(await onErrorHandler(error, new Context(request)));
+    } catch {
+      return internalServerError();
+    }
+  };
   const addRoute = (definition: RouteDefinition): void => {
     registerRoute(routeTable, definition);
   };
@@ -742,9 +791,25 @@ export function createApp(): MizuApp {
       return this;
     },
 
-    use(middleware: Middleware): MizuApp {
+    use(
+      pathOrMiddleware: string | Middleware,
+      pathMiddlewareHandler?: Middleware,
+    ): MizuApp {
+      const middleware = typeof pathOrMiddleware === 'string'
+        ? pathMiddleware(pathOrMiddleware, pathMiddlewareHandler as Middleware)
+        : pathOrMiddleware;
       middlewares.push(middleware);
       middlewareRunner = createMiddlewareRunner(middlewares);
+      return this;
+    },
+
+    onError(handler: ErrorHandler): MizuApp {
+      onErrorHandler = handler;
+      return this;
+    },
+
+    notFound(handler: NotFoundHandler): MizuApp {
+      notFoundHandler = handler;
       return this;
     },
 
@@ -755,6 +820,7 @@ export function createApp(): MizuApp {
         addRoute({
           ...definition,
           path: joinPaths(prefix, definition.path),
+          basePath: prefix,
           middlewares: [
             ...internalRouter.middlewares,
             ...definition.middlewares,
@@ -767,6 +833,7 @@ export function createApp(): MizuApp {
 
     async fetch(request: Request): Promise<Response> {
       const url = new URL(request.url);
+      const requestContext = requestContexts.get(request) ?? new Context(request);
       let method = request.method;
       let match = findRoute(routeTable, method, url.pathname);
       let headResponse = method === 'HEAD';
@@ -791,16 +858,23 @@ export function createApp(): MizuApp {
           });
         }
 
-        return notFound();
+        try {
+          return errorResponse(await notFoundHandler(new Context(request)));
+        } catch {
+          return internalServerError();
+        }
       }
 
       const route = match.route;
       const params = match.params;
+      requestContext.setRouteInfo(route.path, route.basePath ?? '/');
 
       const dispatchRoute = async (
         activeRequest: Request = request,
       ): Promise<Response> => {
-        const context: Record<string, unknown> = {};
+        const context: Record<string, unknown> = {
+          ctx: activeRequest === request ? requestContext : new Context(activeRequest),
+        };
 
         try {
           const requestSchemas = route.contract.request;
@@ -828,36 +902,12 @@ export function createApp(): MizuApp {
         }
 
         if (requestSchemas?.body) {
-          const contentType = activeRequest.headers.get('content-type');
-          if (!contentType?.toLowerCase().startsWith('application/json')) {
-            throw new BodyParsingFailure();
-          }
-
-          let body: unknown;
-          try {
-            body = await activeRequest.json();
-          } catch (error) {
-            if (error instanceof BodyLimitExceeded) throw error;
-            throw new BodyParsingFailure();
-          }
-
+          const body = await extractBody(activeRequest);
           context.body = await validate(requestSchemas.body, body);
         }
 
         } catch (error) {
-          if (error instanceof ValidationFailure) {
-            return badRequest(error.issues);
-          }
-
-          if (error instanceof BodyParsingFailure) {
-            return badRequest();
-          }
-
-          if (error instanceof BodyLimitExceeded) {
-            return new Response('Payload Too Large', { status: 413 });
-          }
-
-          return internalServerError();
+          return handleError(error, activeRequest);
         }
 
         let result: { status: number; body: unknown; headers?: HeadersInit };
@@ -867,8 +917,8 @@ export function createApp(): MizuApp {
             body: unknown;
             headers?: HeadersInit;
           };
-        } catch {
-          return internalServerError();
+        } catch (error) {
+          return handleError(error, activeRequest);
         }
 
         let body = result.body;
@@ -883,14 +933,25 @@ export function createApp(): MizuApp {
         return response(body, result.status, result.headers, headResponse);
       };
 
-      return route.middlewareRunner(request, dispatchRoute);
+      try {
+      return await route.middlewareRunner(request, dispatchRoute, requestContext);
+      } catch (error) {
+        return handleError(error, request);
+      }
+    },
+
+    request(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+      return createRequest(this, input, init);
     },
   };
 
   const dispatch = app.fetch;
   app.fetch = async (request: Request): Promise<Response> => {
+    const context = new Context(request);
+    requestContexts.set(request, context);
     return middlewareRunner(request, (nextRequest) =>
       dispatch(nextRequest ?? request),
+      context,
     );
   };
 
@@ -1045,7 +1106,13 @@ export function createRouter(): MizuRouter {
       return router;
     },
 
-    use(middleware: Middleware): MizuRouter {
+    use(
+      pathOrMiddleware: string | Middleware,
+      pathMiddlewareHandler?: Middleware,
+    ): MizuRouter {
+      const middleware = typeof pathOrMiddleware === 'string'
+        ? pathMiddleware(pathOrMiddleware, pathMiddlewareHandler as Middleware)
+        : pathOrMiddleware;
       middlewares.push(middleware);
       return router;
     },
