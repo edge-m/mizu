@@ -21,6 +21,10 @@
   "scripts": {
     "build": "tsup",
     "bench": "vitest bench",
+    "bench:fetch": "node --import tsx benchmarks/fetch/bench.mts",
+    "bench:fetch:compare": "node benchmarks/fetch/compare.mjs",
+    "bench:http": "node --import tsx benchmarks/http-server/benchmark.mts",
+    "bench:environment": "node benchmarks/collect-environment.mjs",
     "clean": "rm -rf dist",
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",
@@ -32,6 +36,7 @@
     "@types/node": "^26.6.2",
     "hono": "^4.13.9",
     "tsup": "^8.5.0",
+    "mitata": "^1.0.34",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8",
