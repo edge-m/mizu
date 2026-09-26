@@ -41,7 +41,7 @@ type RouteDefinition = {
   basePath?: string;
 };
 
-type RouteMatcher = (pathname: string) => Record<string, string> | null;
+type RouteMatcher = (pathname: string) => string[] | null;
 type MiddlewareRunner = (
   request: Request,
   terminal: (request?: Request) => Promise<Response>,
@@ -68,14 +68,20 @@ type DynamicRouteIndex = {
   routes: RegisteredRoute[];
   trie: DynamicRouteNode;
   staticSuffix: Map<string, RegisteredRoute[]>;
+  hasWildcard: boolean;
 };
 
 type RouteTable = {
-  static: Map<string, RegisteredRoute>;
+  static: Map<string, Map<string, RegisteredRoute>>;
   dynamic: Map<string, DynamicRouteIndex>;
 };
 
-const DYNAMIC_TRIE_THRESHOLD = 512;
+type RouteMatch = {
+  route: RegisteredRoute;
+  paramValues: string[] | null;
+};
+
+const DYNAMIC_TRIE_THRESHOLD = 64;
 
 type InternalRouter = MizuRouter & {
   definitions: RouteDefinition[];
@@ -163,7 +169,7 @@ function createRouteMatcher(path: string): RouteMatcher {
     return (pathname) => {
       if (!pathname.startsWith(prefix)) return null;
 
-      return { '*': decodeURIComponent(pathname.slice(prefix.length)) };
+      return [pathname.slice(prefix.length)];
     };
   }
 
@@ -189,7 +195,7 @@ function createRouteMatcher(path: string): RouteMatcher {
       const value = pathname.slice(prefix.length, end);
       if (value.includes('/')) return null;
 
-      return { [paramName]: decodeURIComponent(value) };
+      return [value];
     };
   }
 
@@ -225,10 +231,7 @@ function createRouteMatcher(path: string): RouteMatcher {
       );
       if (firstValue.includes('/') || secondValue.includes('/')) return null;
 
-      return {
-        [firstParamName]: decodeURIComponent(firstValue),
-        [secondParamName]: decodeURIComponent(secondValue),
-      };
+      return [firstValue, secondValue];
     };
   }
 
@@ -270,11 +273,7 @@ function createRouteMatcher(path: string): RouteMatcher {
       if (lastValue.includes('/')) return null;
       values.push(lastValue);
 
-      return {
-        [paramNames[0]]: decodeURIComponent(values[0]),
-        [paramNames[1]]: decodeURIComponent(values[1]),
-        [paramNames[2]]: decodeURIComponent(values[2]),
-      };
+      return values;
     };
   }
 
@@ -282,28 +281,26 @@ function createRouteMatcher(path: string): RouteMatcher {
     const pathnameSegments = pathname.split('/');
     if (pathnameSegments.length !== segments.length) return null;
 
-    const params: Record<string, string> = {};
+    const values: string[] = [];
     let paramIndex = 0;
     for (let index = 0; index < segments.length; index += 1) {
       const routeSegment = segments[index];
       if (routeSegment.startsWith(':')) {
-        params[paramNames[paramIndex]] = decodeURIComponent(
-          pathnameSegments[index],
-        );
+        values.push(pathnameSegments[index]);
         paramIndex += 1;
       } else if (routeSegment !== pathnameSegments[index]) {
         return null;
       }
     }
 
-    return params;
+    return values;
   };
 }
 
 function findCompiledRoute(
   index: DynamicRouteIndex,
   pathname: string,
-): { route: RegisteredRoute; params: Record<string, string> } | null {
+): RouteMatch | null {
   const lastSlash = pathname.lastIndexOf('/');
   const suffixCandidates = index.staticSuffix.get(
     pathname.slice(lastSlash + 1),
@@ -311,8 +308,8 @@ function findCompiledRoute(
   const candidates = suffixCandidates ?? index.routes;
 
   for (const route of candidates) {
-    const params = route.matcher?.(pathname) ?? null;
-    if (params) return { route, params };
+    const paramValues = route.matcher?.(pathname) ?? null;
+    if (paramValues) return { route, paramValues };
   }
 
   return null;
@@ -321,7 +318,7 @@ function findCompiledRoute(
 function findDynamicRoute(
   root: DynamicRouteNode,
   pathname: string,
-): { route: RegisteredRoute; params: Record<string, string> } | null {
+): RouteMatch | null {
   const segments = pathname.split('/');
 
   const visit = (
@@ -352,40 +349,43 @@ function findDynamicRoute(
   const match = visit(root, 0, []);
   if (!match) return null;
 
+  return { route: match.route, paramValues: match.values };
+}
+
+function createParams(
+  route: RegisteredRoute,
+  values: string[],
+): Record<string, string> {
   const params: Record<string, string> = {};
-  for (let index = 0; index < match.route.paramNames.length; index += 1) {
-    params[match.route.paramNames[index]] = decodeURIComponent(match.values[index]);
+
+  for (let index = 0; index < route.paramNames.length; index += 1) {
+    params[route.paramNames[index]] = decodeURIComponent(values[index]);
   }
 
-  return { route: match.route, params };
+  return params;
 }
 
 function findRoute(
   table: RouteTable,
   method: string,
   pathname: string,
-): { route: RegisteredRoute; params: Record<string, string> | null } | null {
-  const staticRoute = table.static.get(`${method} ${pathname}`);
-  if (staticRoute) return { route: staticRoute, params: null };
+): RouteMatch | null {
+  const staticRoute = table.static.get(method)?.get(pathname);
+  if (staticRoute) return { route: staticRoute, paramValues: null };
 
   const dynamicIndex = table.dynamic.get(method);
   if (!dynamicIndex) return null;
 
-  const hasWildcard = dynamicIndex.routes.some((route) =>
-    route.segments.includes('*'),
-  );
-
-  return dynamicIndex.routes.length > DYNAMIC_TRIE_THRESHOLD && !hasWildcard
+  const match = dynamicIndex.routes.length > DYNAMIC_TRIE_THRESHOLD && !dynamicIndex.hasWildcard
     ? findDynamicRoute(dynamicIndex.trie, pathname)
     : findCompiledRoute(dynamicIndex, pathname);
+
+  return match;
 }
 
 function allowedMethods(table: RouteTable, pathname: string): string[] {
   const methods = new Set<string>();
-  for (const method of new Set([
-    ...[...table.static.keys()].map((key) => key.slice(0, key.indexOf(' '))),
-    ...table.dynamic.keys(),
-  ])) {
+  for (const method of new Set([...table.static.keys(), ...table.dynamic.keys()])) {
     if (findRoute(table, method, pathname)) methods.add(method);
   }
 
@@ -408,8 +408,12 @@ function registerRoute(table: RouteTable, definition: RouteDefinition): void {
   };
 
   if (isStatic) {
-    const key = `${route.method} ${route.path}`;
-    if (!table.static.has(key)) table.static.set(key, route);
+    let methodRoutes = table.static.get(route.method);
+    if (!methodRoutes) {
+      methodRoutes = new Map();
+      table.static.set(route.method, methodRoutes);
+    }
+    if (!methodRoutes.has(route.path)) methodRoutes.set(route.path, route);
   } else {
     let index = table.dynamic.get(route.method);
     if (!index) {
@@ -417,9 +421,12 @@ function registerRoute(table: RouteTable, definition: RouteDefinition): void {
         routes: [],
         trie: createDynamicRouteNode(),
         staticSuffix: new Map(),
+        hasWildcard: false,
       };
       table.dynamic.set(route.method, index);
     }
+
+    if (route.segments.includes('*')) index.hasWildcard = true;
 
     insertSpecificRoute(index.routes, route);
 
@@ -527,6 +534,7 @@ function response(
   let result: Response;
 
   if (typeof body === 'string') {
+    setContentLength(responseHeaders, new TextEncoder().encode(body).byteLength);
     result = new Response(body, { status, headers: responseHeaders });
   } else if (
     body instanceof ReadableStream ||
@@ -534,6 +542,12 @@ function response(
     body instanceof ArrayBuffer ||
     ArrayBuffer.isView(body)
   ) {
+    if (!responseHeaders.has('content-length') && !(body instanceof ReadableStream)) {
+      setContentLength(
+        responseHeaders,
+        body instanceof Blob ? body.size : body.byteLength,
+      );
+    }
     result = new Response(body as BodyInit, {
       status,
       headers: responseHeaders,
@@ -543,7 +557,12 @@ function response(
       responseHeaders.set('content-type', 'application/json; charset=utf-8');
     }
 
-    result = new Response(JSON.stringify(body), {
+    const serializedBody = JSON.stringify(body);
+    setContentLength(
+      responseHeaders,
+      new TextEncoder().encode(serializedBody).byteLength,
+    );
+    result = new Response(serializedBody, {
       status,
       headers: responseHeaders,
     });
@@ -552,6 +571,12 @@ function response(
   return head
     ? new Response(null, { status: result.status, headers: result.headers })
     : result;
+}
+
+function setContentLength(headers: Headers, length: number): void {
+  if (!headers.has('content-length')) {
+    headers.set('content-length', String(length));
+  }
 }
 
 function requestHeaders(request: Request): Record<string, string> {
@@ -832,8 +857,8 @@ export function createApp(): MizuApp {
     },
 
     async fetch(request: Request): Promise<Response> {
-      const url = new URL(request.url);
       const requestContext = requestContexts.get(request) ?? new Context(request);
+      const url = requestContext.url;
       let method = request.method;
       let match = findRoute(routeTable, method, url.pathname);
       let headResponse = method === 'HEAD';
@@ -866,7 +891,7 @@ export function createApp(): MizuApp {
       }
 
       const route = match.route;
-      const params = match.params;
+      const paramValues = match.paramValues;
       requestContext.setRouteInfo(route.path, route.basePath ?? '/');
 
       const dispatchRoute = async (
@@ -879,7 +904,8 @@ export function createApp(): MizuApp {
         try {
           const requestSchemas = route.contract.request;
 
-        if (params && Object.keys(params).length > 0) {
+        if (paramValues) {
+          const params = createParams(route, paramValues);
           context.params = requestSchemas?.params
             ? await validate(requestSchemas.params, params)
             : params;
@@ -947,7 +973,8 @@ export function createApp(): MizuApp {
 
   const dispatch = app.fetch;
   app.fetch = async (request: Request): Promise<Response> => {
-    const context = new Context(request);
+    const url = new URL(request.url);
+    const context = new Context(request, url);
     requestContexts.set(request, context);
     return middlewareRunner(request, (nextRequest) =>
       dispatch(nextRequest ?? request),

@@ -138,7 +138,7 @@ const queryRequest = new Request('http://localhost/todos?limit=10');
 const responseRequest = new Request('http://localhost/health');
 const middlewareRequest = new Request('http://localhost/health');
 
-const routeCounts = [1, 10, 100, 256, 512, 513, 1_000];
+const routeCounts = [1, 10, 32, 64, 65, 100, 256, 512, 513, 1_000];
 const mizuRouteCountApps = routeCounts.map((count) => {
   const app = createApp();
   for (let index = 0; index < count; index += 1) {

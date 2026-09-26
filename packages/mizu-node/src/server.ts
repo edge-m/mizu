@@ -64,6 +64,8 @@ export function createNodeServer(
 
       if (!webResponse.body) {
         response.end();
+      } else if (webResponse.headers.has('content-length')) {
+        response.end(Buffer.from(await webResponse.arrayBuffer()));
       } else {
         const body = Readable.fromWeb(
           webResponse.body as unknown as NodeReadableStream<any>,

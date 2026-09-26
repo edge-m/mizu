@@ -20,6 +20,30 @@ const healthResponse = {
   }),
 };
 
+test('reuses the parsed request URL during dispatch', async () => {
+  const app = createApp();
+  app.get('/health', {}, async () => ({ status: 200, body: 'ok' }));
+
+  const request = new Request('http://localhost/health');
+  const OriginalURL = globalThis.URL;
+  let parses = 0;
+
+  class CountingURL extends OriginalURL {
+    constructor(input: string | URL, base?: string | URL) {
+      super(input, base);
+      parses += 1;
+    }
+  }
+
+  vi.stubGlobal('URL', CountingURL);
+  try {
+    await app.fetch(request);
+    expect(parses).toBe(1);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 test('serves a typed GET route through the Web Standard fetch API', async () => {
   const app = createApp();
 
@@ -154,6 +178,21 @@ test('passes validated path params to a dynamic GET route', async () => {
 
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ id: '1' });
+});
+
+test('defers path parameter decoding until route dispatch', async () => {
+  const app = createApp();
+  app.get(
+    '/items/:id',
+    {},
+    async () => ({ status: 200, body: 'handler' }),
+    async () => new Response('middleware'),
+  );
+
+  const response = await app.fetch(new Request('http://localhost/items/%ZZ'));
+
+  expect(response.status).toBe(200);
+  expect(await response.text()).toBe('middleware');
 });
 
 test('passes two path params through a static segment', async () => {

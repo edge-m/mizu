@@ -13,9 +13,9 @@ export class Context<Variables extends ContextVariables = ContextVariables> {
   private readonly values = new Map<string, unknown>();
   private readonly responseHeaders = new Headers();
 
-  constructor(request: Request) {
+  constructor(request: Request, url = new URL(request.url)) {
     this.request = request;
-    this.url = new URL(request.url);
+    this.url = url;
     this.method = request.method;
     this.signal = request.signal;
   }
