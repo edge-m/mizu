@@ -41,3 +41,26 @@ export function cacheControl(value: string): Middleware {
     return response;
   };
 }
+
+export function bodyLimit(maxBytes: number): Middleware {
+  if (!Number.isFinite(maxBytes) || maxBytes < 0) {
+    throw new Error('maxBytes must be a non-negative finite number');
+  }
+
+  return async (request, next) => {
+    const contentLength = request.headers.get('content-length');
+    const declaredLength = contentLength === null
+      ? undefined
+      : Number(contentLength);
+
+    if (
+      declaredLength !== undefined &&
+      Number.isFinite(declaredLength) &&
+      declaredLength > maxBytes
+    ) {
+      return new Response('Payload Too Large', { status: 413 });
+    }
+
+    return next();
+  };
+}

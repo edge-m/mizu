@@ -736,7 +736,7 @@ async-only public API migration 完了
 `mizu-node` workspace package化 完了（root compatibility exportあり）
 HTTP completeness and request/response helpers 進行中（HEAD / OPTIONS / 405 / wildcard 完了）
 Cookie and browser-facing middleware 進行中（通常Cookie / signed cookie / CORS / CSRF 完了）
-Operational middleware 進行中（secure headers / logger / request ID / ETag / cache-control 完了）
+Operational middleware 進行中（secure headers / logger / request ID / ETag / cache-control / Content-Length body limit 完了）
 Authentication and authorization helpers 計画
 Runtime adapters and platform features 計画
 Developer experience and testing 計画

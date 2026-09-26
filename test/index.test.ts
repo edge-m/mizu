@@ -7,6 +7,7 @@ test('exposes the public application entry points', () => {
     'cors',
     'csrf',
     'secureHeaders',
+    'bodyLimit',
     'cacheControl',
     'logger',
     'requestId',

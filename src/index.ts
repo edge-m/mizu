@@ -2,7 +2,7 @@ export { createApp } from './app.js';
 export { cors } from './cors.js';
 export { csrf } from './csrf.js';
 export { secureHeaders } from './secure-headers.js';
-export { cacheControl, logger, requestId } from './operational.js';
+export { bodyLimit, cacheControl, logger, requestId } from './operational.js';
 export { etag } from './etag.js';
 export {
   deleteCookie,
