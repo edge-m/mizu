@@ -86,6 +86,49 @@ test('returns 404 when no route matches', async () => {
   expect(response.status).toBe(404);
 });
 
+test('serves GET routes for HEAD without a response body', async () => {
+  const app = createApp();
+
+  app.get('/health', {}, async () => ({
+    status: 200,
+    body: { ok: true },
+  }));
+
+  const response = await app.fetch(
+    new Request('http://localhost/health', { method: 'HEAD' }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get('content-type')).toContain('application/json');
+  expect(await response.text()).toBe('');
+});
+
+test('returns the allowed methods for an automatic OPTIONS request', async () => {
+  const app = createApp();
+
+  app.get('/health', {}, async () => ({ status: 200, body: 'ok' }));
+  app.post('/health', {}, async () => ({ status: 201, body: 'created' }));
+
+  const response = await app.fetch(
+    new Request('http://localhost/health', { method: 'OPTIONS' }),
+  );
+
+  expect(response.status).toBe(204);
+  expect(response.headers.get('allow')).toBe('GET, HEAD, OPTIONS, POST');
+  expect(await response.text()).toBe('');
+});
+
+test('returns 405 with Allow when the path exists for another method', async () => {
+  const app = createApp();
+
+  app.post('/health', {}, async () => ({ status: 201, body: 'created' }));
+
+  const response = await app.fetch(new Request('http://localhost/health'));
+
+  expect(response.status).toBe(405);
+  expect(response.headers.get('allow')).toBe('OPTIONS, POST');
+});
+
 test('passes validated path params to a dynamic GET route', async () => {
   const app = createApp();
 
@@ -128,6 +171,46 @@ test('passes two path params through a static segment', async () => {
 
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ user: 'alice', post: '42' });
+});
+
+test('passes the remaining path to a wildcard route', async () => {
+  const app = createApp();
+
+  app.get(
+    '/assets/*',
+    { request: { params: z.object({ '*': z.string() }) } },
+    async ({ params }) => ({
+      status: 200,
+      body: { path: params['*'] },
+    }),
+  );
+
+  const response = await app.fetch(
+    new Request('http://localhost/assets/images/logo.svg'),
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ path: 'images/logo.svg' });
+});
+
+test('prefers a static route over a wildcard route', async () => {
+  const app = createApp();
+
+  app.get('/assets/*', {}, async () => ({
+    status: 200,
+    body: { route: 'wildcard' },
+  }));
+  app.get('/assets/manifest.json', {}, async () => ({
+    status: 200,
+    body: { route: 'static' },
+  }));
+
+  const response = await app.fetch(
+    new Request('http://localhost/assets/manifest.json'),
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ route: 'static' });
 });
 
 test('passes three path params through static segments', async () => {

@@ -353,6 +353,137 @@ Mizuはroute数1〜1,000で約258k〜266k ops/secに収まり、fast pathからT
 
 Hono側にもMizuと同じZod params schemaを`zValidator('param', schema)`で適用した。1 param route benchmarkはMizu約276k / Hono約284k ops/sec、2 param route benchmarkはMizu約244k / Hono約266k ops/sec、3 param route benchmarkはMizu約229k / Hono約253k ops/secとなった。専用matcherは追加できたが、param数が増えるほどHonoとの差が残るため、次の最適化候補とする。
 
+## Future roadmap after Phase 5
+
+The following phases are the next implementation roadmap. The detailed historical Slice descriptions below remain as design records for the completed work.
+
+### Phase 6: HTTP completeness and request/response helpers
+
+Phase 5まででCoreの主要なroute、validation、middleware、adapter、benchmark基盤が揃ったため、次は実運用で不足するHTTP境界を埋める。HonoのAPIを互換実装するのではなく、Fetch APIと`path → contract → handler`の設計に合わせる。
+
+実装候補:
+
+- `HEAD`、`OPTIONS`、method未対応時の`405 Method Not Allowed`と`Allow`
+- static / dynamic routeのwildcard・catch-all path
+- path patternを指定できるapp / router middleware
+- カスタム`notFound` / `onError`相当のerror handling hook
+- `text()`、`formData()`、`arrayBuffer()`、`blob()`などのJSON以外のbody parsing
+- text / JSON / stream / empty response helper
+- raw `Request` / `Response`とURL、method、headersへの明示的なアクセス
+
+検証:
+
+- 既存path・未対応methodが404ではなく405になり、正しい`Allow`を返す
+- wildcard routeのstatic優先順位とparams抽出が既存routeと矛盾しない
+- bodyは一度だけ読み取られ、content typeごとのvalidationが400へ変換される
+- response helperが複数headers、stream、204 / 304を壊さない
+
+### Phase 7: Cookie and browser-facing middleware
+
+Cookieを独立したSliceとして追加し、ブラウザから利用されるAPIに必要なmiddlewareを揃える。
+
+実装候補:
+
+- `Cookie` request headerのparse（空値、重複名、percent-encodingを含む）
+- 複数の`Set-Cookie` response headerの追加
+- `setCookie`、`deleteCookie`と`Max-Age`、`Expires`、`Domain`、`Path`、`Secure`、`HttpOnly`、`SameSite`、`Partitioned`
+- `__Secure-` / `__Host-` prefixの属性整合性検証
+- Web Cryptoを使うsigned cookie helper
+- CORS middleware（origin、methods、headers、credentials、expose headers、max age）
+- CSRF middleware（unsafe method、Origin、Sec-Fetch-Site、form系content type）
+- secure headers middleware
+
+Cookieは暗黙のhandler context状態ではなく、request helperとresponse header utilityで明示的に扱う。通常Cookieとsigned cookieはAPIを分離し、複数`Set-Cookie`をカンマ連結しない。
+
+検証:
+
+- `Cookie` headerから複数cookieを正しく取得できる
+- 同名cookieとpercent-encodingの挙動が仕様化されている
+- 一つのresponseに複数の独立した`Set-Cookie`を出力できる
+- `__Host-` / `__Secure-`の不正な属性組み合わせを拒否できる
+- CORS credentialsとwildcard originの不正な組み合わせを出力しない
+- CSRFがsafe methodとunsafe methodを区別する
+
+### Phase 8: Operational middleware
+
+アプリケーション運用向けの汎用middlewareを、route dispatchとは分離して追加する。
+
+実装候補:
+
+- request loggerとconfigurable log sink
+- request IDの生成・伝播
+- ETagと`If-None-Match`
+- JSON、text、form、streamのbody size limit
+- runtime提供機能を優先するcompression adapter / middleware
+- cache-control helper
+- streaming response helper
+- timeout / cancellation policyの共通化
+
+既存の`Request → next() → Response`契約で実装できるものを優先し、新しいlifecycle hookは追加しない。
+
+### Phase 9: Authentication and authorization helpers
+
+認証方式をCoreのroute dispatchへ固定せず、middlewareと暗号ライブラリの境界を明確にする。
+
+実装候補:
+
+- Basic authentication
+- Bearer token extraction
+- Web Crypto対応範囲を明記したJWT verification middleware
+- verified identity / claimsを後続handlerへ明示的かつ型安全に渡すcontext data API
+- 401 responseと`WWW-Authenticate`
+- 利用者がauthorization policyを組み立てるためのmiddleware API
+
+OAuth、OIDC、Firebase、Auth.jsなどのprovider-specific integrationはMizu本体に含めず、別packageまたはthird-party middlewareの対象とする。
+
+### Phase 10: Runtime adapters and platform features
+
+Fetch Coreをruntime非依存に保ったまま、実行環境固有の機能をadapterへ追加する。
+
+実装候補:
+
+- `mizu-node`のstatic files / file response
+- WebSocket upgrade adapter
+- serverless adapter
+- runtime environment access helper
+- graceful shutdown、connection limits、compressionなどのNode adapter運用機能
+
+検証:
+
+- Coreの公開型にNode.jsやplatform固有型が混ざらない
+- static files、WebSocket、streamingのadapter境界が明確である
+- runtimeごとのdisconnect、timeout、shutdown挙動をテストできる
+
+### Phase 11: Developer experience and testing
+
+route contractを安全にテスト・再利用するためのDXを追加する。
+
+実装候補:
+
+- `app.fetch(new Request(...))`を簡単に呼ぶtesting helper
+- route定義からTypeScript型を流すtyped test clientの検討
+- response / error contractのfixture helper
+- benchmarkとruntime adapter testの標準化
+- runtime別sampleとmigration documentation
+
+typed clientはTypeScript型を共有する範囲に限定し、OpenAPI、JSON Schema、他言語SDK生成は対象外とする。
+
+### Hono comparison: explicit out of scope
+
+Honoに存在することだけを理由に、次の機能はMizu本体へ追加しない。
+
+- OpenAPI / JSON Schemaの生成・読み込み
+- 他言語向け型・SDK生成
+- ORM / database abstraction
+- DI container、decorator、class-based DTO
+- JSX / HTML rendering
+- GraphQL server
+- OAuth / OIDC provider-specific integrations
+- SSG / frontend build system
+- RPC専用procedure API
+
+これらはMizuの薄いFetch Coreと`path → contract → handler`を損なう可能性が高いため、必要時は別packageまたは利用者側の統合で解決する。
+
 ## Phase 1: Request入力の拡張
 
 ### Slice 2: GET + path params
@@ -603,6 +734,12 @@ request processing optimization 完了
 Hono comparison remeasure 完了
 async-only public API migration 完了
 `mizu-node` workspace package化 完了（root compatibility exportあり）
+HTTP completeness and request/response helpers 進行中（HEAD / OPTIONS / 405 / wildcard 完了）
+Cookie and browser-facing middleware 進行中（通常Cookie / signed cookie / CORS / CSRF 完了）
+Operational middleware 進行中（secure headers / logger / request ID / ETag / cache-control 完了）
+Authentication and authorization helpers 計画
+Runtime adapters and platform features 計画
+Developer experience and testing 計画
 ```
 
 ## 対象外

@@ -85,6 +85,11 @@ export type DeleteHandler<Contract extends DeleteContract> =
 export type QueryContract = PostContract;
 export type QueryHandler<Contract extends QueryContract> =
   PostHandler<Contract>;
+export type HeadContract = GetContract;
+export type HeadHandler<Contract extends HeadContract> = GetHandler<Contract>;
+export type OptionsContract = PostContract;
+export type OptionsHandler<Contract extends OptionsContract> =
+  PostHandler<Contract>;
 
 export type MizuRouter = {
   get<Contract extends GetContract>(
@@ -121,6 +126,18 @@ export type MizuRouter = {
     path: string,
     contract: Contract,
     handler: QueryHandler<Contract>,
+    ...middlewares: Middleware[]
+  ): MizuRouter;
+  head<Contract extends HeadContract>(
+    path: string,
+    contract: Contract,
+    handler: HeadHandler<Contract>,
+    ...middlewares: Middleware[]
+  ): MizuRouter;
+  options<Contract extends OptionsContract>(
+    path: string,
+    contract: Contract,
+    handler: OptionsHandler<Contract>,
     ...middlewares: Middleware[]
   ): MizuRouter;
   use(middleware: Middleware): MizuRouter;

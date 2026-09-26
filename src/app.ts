@@ -1,6 +1,8 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type {
   AnySchema,
+  HeadContract,
+  HeadHandler,
   GetContract,
   GetHandler,
   Middleware,
@@ -16,6 +18,8 @@ import type {
   PutHandler,
   QueryContract,
   QueryHandler,
+  OptionsContract,
+  OptionsHandler,
   RouteContract,
   SchemaOutput,
 } from './types.js';
@@ -85,7 +89,9 @@ function routeDefinition(
 }
 
 function isDynamicPath(path: string): boolean {
-  return path.split('/').some((segment) => segment.startsWith(':'));
+  return path
+    .split('/')
+    .some((segment) => segment.startsWith(':') || segment === '*');
 }
 
 function createDynamicRouteNode(): DynamicRouteNode {
@@ -99,12 +105,14 @@ function escapeRegExp(value: string): string {
 function dynamicParamNames(path: string): string[] {
   return path
     .split('/')
-    .filter((segment) => segment.startsWith(':'))
-    .map((segment) => segment.slice(1));
+    .filter((segment) => segment.startsWith(':') || segment === '*')
+    .map((segment) => segment === '*' ? '*' : segment.slice(1));
 }
 
 function routeSegmentKinds(path: string): boolean[] {
-  return path.split('/').map((segment) => !segment.startsWith(':'));
+  return path
+    .split('/')
+    .map((segment) => !segment.startsWith(':') && segment !== '*');
 }
 
 function compareRouteSpecificity(
@@ -136,6 +144,18 @@ function insertSpecificRoute(
 
 function createRouteMatcher(path: string): RouteMatcher {
   const segments = path.split('/');
+  const wildcardIndex = segments.findIndex((segment) => segment === '*');
+
+  if (wildcardIndex === segments.length - 1) {
+    const prefix = `${segments.slice(0, wildcardIndex).join('/')}/`;
+
+    return (pathname) => {
+      if (!pathname.startsWith(prefix)) return null;
+
+      return { '*': decodeURIComponent(pathname.slice(prefix.length)) };
+    };
+  }
+
   const paramNames = segments
     .filter((segment) => segment.startsWith(':'))
     .map((segment) => segment.slice(1));
@@ -329,6 +349,41 @@ function findDynamicRoute(
   return { route: match.route, params };
 }
 
+function findRoute(
+  table: RouteTable,
+  method: string,
+  pathname: string,
+): { route: RegisteredRoute; params: Record<string, string> | null } | null {
+  const staticRoute = table.static.get(`${method} ${pathname}`);
+  if (staticRoute) return { route: staticRoute, params: null };
+
+  const dynamicIndex = table.dynamic.get(method);
+  if (!dynamicIndex) return null;
+
+  const hasWildcard = dynamicIndex.routes.some((route) =>
+    route.segments.includes('*'),
+  );
+
+  return dynamicIndex.routes.length > DYNAMIC_TRIE_THRESHOLD && !hasWildcard
+    ? findDynamicRoute(dynamicIndex.trie, pathname)
+    : findCompiledRoute(dynamicIndex, pathname);
+}
+
+function allowedMethods(table: RouteTable, pathname: string): string[] {
+  const methods = new Set<string>();
+  for (const method of new Set([
+    ...[...table.static.keys()].map((key) => key.slice(0, key.indexOf(' '))),
+    ...table.dynamic.keys(),
+  ])) {
+    if (findRoute(table, method, pathname)) methods.add(method);
+  }
+
+  if (methods.has('GET')) methods.add('HEAD');
+  if (methods.size > 0) methods.add('OPTIONS');
+
+  return [...methods].sort();
+}
+
 function registerRoute(table: RouteTable, definition: RouteDefinition): void {
   const isStatic = !isDynamicPath(definition.path);
   const route: RegisteredRoute = {
@@ -451,6 +506,7 @@ function response(
   body: unknown,
   status: number,
   headers?: HeadersInit,
+  head = false,
 ): Response {
   const responseHeaders = new Headers(headers);
 
@@ -458,30 +514,34 @@ function response(
     return new Response(null, { status, headers: responseHeaders });
   }
 
-  if (typeof body === 'string') {
-    return new Response(body, { status, headers: responseHeaders });
-  }
+  let result: Response;
 
-  if (
+  if (typeof body === 'string') {
+    result = new Response(body, { status, headers: responseHeaders });
+  } else if (
     body instanceof ReadableStream ||
     body instanceof Blob ||
     body instanceof ArrayBuffer ||
     ArrayBuffer.isView(body)
   ) {
-    return new Response(body as BodyInit, {
+    result = new Response(body as BodyInit, {
+      status,
+      headers: responseHeaders,
+    });
+  } else {
+    if (!responseHeaders.has('content-type')) {
+      responseHeaders.set('content-type', 'application/json; charset=utf-8');
+    }
+
+    result = new Response(JSON.stringify(body), {
       status,
       headers: responseHeaders,
     });
   }
 
-  if (!responseHeaders.has('content-type')) {
-    responseHeaders.set('content-type', 'application/json; charset=utf-8');
-  }
-
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: responseHeaders,
-  });
+  return head
+    ? new Response(null, { status: result.status, headers: result.headers })
+    : result;
 }
 
 function requestHeaders(request: Request): Record<string, string> {
@@ -645,6 +705,40 @@ export function createApp(): MizuApp {
       return this;
     },
 
+    head<Contract extends HeadContract>(
+      path: string,
+      contract: Contract,
+      handler: HeadHandler<Contract>,
+      ...routeMiddlewares: Middleware[]
+    ): MizuApp {
+      addRoute({
+        method: 'HEAD',
+        path,
+        contract,
+        handler: handler as (context: Record<string, unknown>) => unknown,
+        middlewares: routeMiddlewares,
+      });
+
+      return this;
+    },
+
+    options<Contract extends OptionsContract>(
+      path: string,
+      contract: Contract,
+      handler: OptionsHandler<Contract>,
+      ...routeMiddlewares: Middleware[]
+    ): MizuApp {
+      addRoute({
+        method: 'OPTIONS',
+        path,
+        contract,
+        handler: handler as (context: Record<string, unknown>) => unknown,
+        middlewares: routeMiddlewares,
+      });
+
+      return this;
+    },
+
     use(middleware: Middleware): MizuApp {
       middlewares.push(middleware);
       middlewareRunner = createMiddlewareRunner(middlewares);
@@ -670,28 +764,35 @@ export function createApp(): MizuApp {
 
     async fetch(request: Request): Promise<Response> {
       const url = new URL(request.url);
-      let route: RegisteredRoute | undefined;
-      let params: Record<string, string> | null = null;
+      let method = request.method;
+      let match = findRoute(routeTable, method, url.pathname);
+      let headResponse = method === 'HEAD';
 
-      const staticRoute = routeTable.static.get(`${request.method} ${url.pathname}`);
-      if (staticRoute) {
-        route = staticRoute;
-      } else {
-        const dynamicIndex = routeTable.dynamic.get(request.method);
-        if (dynamicIndex) {
-          const match = dynamicIndex.routes.length > DYNAMIC_TRIE_THRESHOLD
-            ? findDynamicRoute(dynamicIndex.trie, url.pathname)
-            : findCompiledRoute(dynamicIndex, url.pathname);
-          if (match) {
-            route = match.route;
-            params = match.params;
-          }
-        }
+      if (!match && method === 'HEAD') {
+        match = findRoute(routeTable, 'GET', url.pathname);
       }
 
-      if (!route) {
+      if (!match) {
+        const methods = allowedMethods(routeTable, url.pathname);
+        if (method === 'OPTIONS' && methods.length > 0) {
+          return new Response(null, {
+            status: 204,
+            headers: { allow: methods.join(', ') },
+          });
+        }
+
+        if (methods.length > 0) {
+          return new Response(null, {
+            status: 405,
+            headers: { allow: methods.join(', ') },
+          });
+        }
+
         return notFound();
       }
+
+      const route = match.route;
+      const params = match.params;
 
       const dispatchRoute = async (): Promise<Response> => {
         const context: Record<string, unknown> = {};
@@ -769,7 +870,7 @@ export function createApp(): MizuApp {
           }
         }
 
-        return response(body, result.status, result.headers);
+        return response(body, result.status, result.headers, headResponse);
       };
 
       return route.middlewareRunner(request, dispatchRoute);
@@ -887,6 +988,42 @@ export function createRouter(): MizuRouter {
       definitions.push(
         routeDefinition(
           'QUERY',
+          path,
+          contract,
+          handler as (context: Record<string, unknown>) => unknown,
+          routeMiddlewares,
+        ),
+      );
+      return router;
+    },
+
+    head<Contract extends HeadContract>(
+      path: string,
+      contract: Contract,
+      handler: HeadHandler<Contract>,
+      ...routeMiddlewares: Middleware[]
+    ): MizuRouter {
+      definitions.push(
+        routeDefinition(
+          'HEAD',
+          path,
+          contract,
+          handler as (context: Record<string, unknown>) => unknown,
+          routeMiddlewares,
+        ),
+      );
+      return router;
+    },
+
+    options<Contract extends OptionsContract>(
+      path: string,
+      contract: Contract,
+      handler: OptionsHandler<Contract>,
+      ...routeMiddlewares: Middleware[]
+    ): MizuRouter {
+      definitions.push(
+        routeDefinition(
+          'OPTIONS',
           path,
           contract,
           handler as (context: Record<string, unknown>) => unknown,
