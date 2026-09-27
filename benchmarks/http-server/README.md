@@ -11,8 +11,8 @@ go install github.com/codesenberg/bombardier@latest
 Run three 10-second rounds (override as needed):
 
 ```sh
-PATH="$(go env GOPATH)/bin:$PATH" npm run bench:http
-PATH="$(go env GOPATH)/bin:$PATH" npm run bench:http -- --runs=5 --duration=10 --concurrency=500
+PATH="$(go env GOPATH)/bin:$PATH" pnpm bench:http
+PATH="$(go env GOPATH)/bin:$PATH" pnpm bench:http -- --runs=5 --duration=10 --concurrency=500
 ```
 
 Set `BOMBARDIER=/path/to/bombardier` when the binary is not on `PATH`.

@@ -11,7 +11,7 @@ description: Build and run your first Mizu API.
 ## Install
 
 ```sh
-npm install mizu mizu-node
+pnpm add mizu mizu-node
 ```
 
 The core package is runtime-neutral. `mizu-node` is only needed when the application should listen on a Node.js HTTP server.

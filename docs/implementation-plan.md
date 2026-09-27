@@ -202,7 +202,7 @@ Fetch Coreを`mizu`本体の標準entry pointとする。Cloudflare Workers以�
 
 実装済み。
 
-- `npm run bench` で Vitest benchmark を実行
+- `pnpm bench` で Vitest benchmark を実行
 - static / params route dispatch
 - headers / query / JSON body validation
 - response validation
@@ -286,7 +286,7 @@ Core の Web 標準境界を維持したまま、adapter 固有の変換コス�
 
 #### 4. Hono 比較の再測定
 
-各最適化 pass の最後に `npm run bench` を実行する。Hono の依存バージョン、Node.js version、実行環境を記録する。
+各最適化 pass の最後に `pnpm bench` を実行する。Hono の依存バージョン、Node.js version、実行環境を記録する。
 
 比較条件は可能な限り統一する。
 

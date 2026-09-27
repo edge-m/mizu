@@ -14,16 +14,16 @@ API と開発者体験の方針は [API / DX 方針](./docs/api-design.md) に�
 ## 開発
 
 ```sh
-npm install
-npm test
-npm run typecheck
-npm run build
+pnpm install
+pnpm test
+pnpm typecheck
+pnpm build
 ```
 
 Node.js serverを起動する場合:
 
 ```sh
-npm install mizu mizu-node
+pnpm add mizu mizu-node
 ```
 
 ```ts
@@ -41,7 +41,7 @@ createNodeServer(app).listen(3000);
 
 既存の `mizu` からの `createNodeServer` importは互換性のため当面利用できますが、新規コードでは `mizu-node` を推奨します。
 
-開発中の TypeScript 実行には `npm run dev` を使えます。公開エントリポイントは `src/index.ts` に集約し、配布成果物は `dist/` に生成します。
+開発中の TypeScript 実行には `pnpm dev` を使えます。公開エントリポイントは `src/index.ts` に集約し、配布成果物は `dist/` に生成します。
 
 ## ライセンス
 

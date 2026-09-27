@@ -8,15 +8,15 @@ description: Set up Mizu locally and validate changes.
 ```sh
 git clone https://github.com/edge-m/mizu.git
 cd mizu
-npm install
+pnpm install
 ```
 
 ## Verify changes
 
 ```sh
-npm test
-npm run typecheck
-npm run build
+pnpm test
+pnpm typecheck
+pnpm build
 ```
 
 Run focused tests while iterating, then run the full suite before opening a pull request.
@@ -36,11 +36,11 @@ Documentation changes live under `docs/site/src/content/docs`. Preview the site 
 
 ```sh
 cd docs/site
-npm run dev
+pnpm --dir docs/site dev
 ```
 
 Build the static site before submitting a documentation change:
 
 ```sh
-npm run build
+pnpm --dir docs/site build
 ```

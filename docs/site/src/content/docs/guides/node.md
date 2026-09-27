@@ -8,7 +8,7 @@ Mizu keeps its core on the Fetch API boundary. The separate `mizu-node` package 
 ## Install
 
 ```sh
-npm install mizu mizu-node
+pnpm add mizu mizu-node
 ```
 
 ## Start a server

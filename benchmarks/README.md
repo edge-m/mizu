@@ -10,12 +10,12 @@ The benchmark apps deliberately use equivalent handlers and payloads. The Mizu N
 ## Commands
 
 ```sh
-npm install
-npm run bench:environment
+pnpm install
+pnpm bench:environment
 node --import tsx benchmarks/fetch/smoke.mts
-npm run bench:fetch:compare
+pnpm bench:fetch:compare
 go install github.com/codesenberg/bombardier@latest
-PATH="$(go env GOPATH)/bin:$PATH" npm run bench:http
+PATH="$(go env GOPATH)/bin:$PATH" pnpm bench:http
 ```
 
 Fetch comparison defaults to 3 fresh-process rounds. HTTP comparison defaults to 3 runs of 10 seconds per endpoint and concurrency 500; use `--runs`, `--duration`, and `--concurrency` to control the cost. Set `BOMBARDIER` to an explicit binary path when needed.
