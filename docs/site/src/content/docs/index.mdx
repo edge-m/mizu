@@ -1,40 +1,43 @@
 ---
-title: Welcome to Starlight
-description: Get started building your docs site with Starlight.
+title: Mizu
+description: A lightweight, type-safe API server library for Node.js.
 template: splash # Remove or comment out this line to display the site sidebar on this page.
 hero:
-  tagline: Congrats on setting up a new Starlight project!
-  image:
-    file: ../../assets/houston.webp
+  tagline: Lightweight, type-safe HTTP APIs built on the Fetch API.
   actions:
-    - text: Example Guide
-      link: /guides/example/
+    - text: Get started
+      link: /guides/quickstart/
       icon: right-arrow
-    - text: Read the Starlight docs
-      link: https://starlight.astro.build
-      icon: external
+    - text: API reference
+      link: /reference/api/
+      icon: open-book
       variant: minimal
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-## Next steps
+Mizu is a small TypeScript API server core for modern JavaScript runtimes. Define routes with typed contracts, compose async middleware, and run the same application through Fetch or the Node.js adapter.
+
+## Why Mizu?
 
 <CardGrid stagger>
-	<Card title="Update content" icon="pencil">
-		Edit `src/content/docs/index.mdx` to see this page change.
+	<Card title="Fetch-first" icon="rocket">
+		The application boundary is `app.fetch(request)`, so tests and runtime adapters share the same interface.
 	</Card>
-	<Card title="Change page layout" icon="document">
-		Delete `template: splash` in `src/content/docs/index.mdx` to display a
-		sidebar on this page.
+	<Card title="Type-safe contracts" icon="setting">
+		Request and response schemas use the Standard Schema interface, keeping validation independent from a single schema library.
 	</Card>
-	<Card title="Add new content" icon="add-document">
-		Add Markdown or MDX files to `src/content/docs` to create new pages.
+	<Card title="Small building blocks" icon="add-document">
+		Routing, context, middleware, cookies, security headers, and operational helpers are individually composable.
 	</Card>
-	<Card title="Configure your site" icon="setting">
-		Edit your `sidebar` and other config in `astro.config.mjs`.
-	</Card>
-	<Card title="Read the docs" icon="open-book">
-		Learn more in [the Starlight Docs](https://starlight.astro.build/).
+	<Card title="Node.js when you need it" icon="laptop">
+		Keep the core runtime-neutral and add `mizu-node` only when you need a Node.js HTTP server.
 	</Card>
 </CardGrid>
+
+## Choose a path
+
+- **Build an API:** start with the [quickstart](/guides/quickstart/).
+- **Understand the model:** read [architecture](/concepts/architecture/) and [routing](/guides/routing/).
+- **Add cross-cutting behavior:** see the [middleware guide](/guides/middleware/).
+- **Look up a symbol:** use the [API reference](/reference/api/).

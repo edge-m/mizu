@@ -6,20 +6,22 @@ import starlight from '@astrojs/starlight';
 export default defineConfig({
 	integrations: [
 		starlight({
-			title: 'My Docs',
-			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/withastro/starlight' }],
+			title: 'Mizu',
+			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/edge-m/mizu' }],
 			sidebar: [
 				{
+					label: 'Start here',
+					items: [{ slug: 'guides/quickstart' }, { slug: 'concepts/architecture' }],
+				},
+				{
 					label: 'Guides',
-					items: [
-						// Each item here is one entry in the navigation menu.
-						{ label: 'Example Guide', slug: 'guides/example' },
-					],
+					items: [{ autogenerate: { directory: 'guides' } }],
 				},
 				{
 					label: 'Reference',
 					items: [{ autogenerate: { directory: 'reference' } }],
 				},
+				{ label: 'Contributing', items: [{ slug: 'contributing' }] },
 			],
 		}),
 	],
